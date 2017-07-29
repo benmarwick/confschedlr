@@ -1,0 +1,246 @@
+---
+title: "Title Goes Here"
+author:
+  - author 1
+  - author 2
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+    bookdown::html_document2:
+    fig_caption: yes
+    reference_docx: templates/template.docx
+bibliography: references.bib
+csl: journal-of-archaeological-science.csl
+abstract: |
+  Text of abstract
+keywords: |
+  keyword 1; keyword 2; keyword 3
+highlights: |
+  These are the highlights. 
+---
+
+
+<!-- This is the format for text comments that will be ignored during renderings. Do not put R code in these comments because it will not be ignored. -->
+
+```{r, setup, echo = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  echo = FALSE,
+  comment = "#>",
+  fig.path = "figures"
+)
+
+library(saaabstracts)
+library(tm)
+library(topicmodels)
+library(readxl)
+library(Rmpfr)
+library(ggplot2)
+```
+
+# Introduction
+
+```{r eval=FALSE}
+# read in the abstracts
+general <- read_excel("../data/raw_data/General Abstracts.xlsx")
+```
+
+```{r eval=FALSE}
+# prepare a mapping structure, first item is column with text to model, others are metadata
+m <- list(content = "Abstract",  # content
+          id = "Abstract Id",      # metadata
+          title = "Title", 
+          author_first = "First Name",
+          author_last = "Last Name",
+          geo = "Geographic Focus",
+          keyword1 = "Keyword1", 
+          keyword2 = "Keyword2", 
+          keyword3 = "Keyword3", 
+          org = "Affiliation")
+```
+
+```{r eval=FALSE}
+# Create a corpus object from the abstracts
+general_corpus <- tm::Corpus(tm::DataframeSource(general), 
+                             readerControl = list(reader = tm::readTabular(mapping = m)))
+
+# create a document term matrix
+general_tm <- tm::DocumentTermMatrix(general_corpus, 
+                                     control = list(stemming = TRUE, 
+                                                    stopwords = TRUE,
+                                                    minWordLength = 2, 
+                                                    removeNumbers = TRUE, 
+                                                    removePunctuation = TRUE))
+```
+
+
+
+```{r eval=FALSE}
+# Use TF-IDF to wieght terms and remove rare ones
+term_tfidf <- 
+  tapply(general_tm$v/slam::row_sums(general_tm)[general_tm$i], 
+         general_tm$j, mean) * log2(tm::nDocs(general_tm)/slam::col_sums(general_tm > 0))
+
+summary(term_tfidf)
+# Median =  0.08989
+```
+
+
+```{r eval=FALSE }
+## Keeping the rows with tfidf >= median
+general_reduced_dtm <- general_tm[,term_tfidf >= summary(term_tfidf)[3]]
+summary(slam::col_sums(general_reduced_dtm))
+# save
+saveRDS(general_reduced_dtm, "../data/derived_data/general_reduced_dtm.rds")
+```
+
+```{r}
+general_reduced_dtm <- readRDS("../data/derived_data/general_reduced_dtm.rds")
+```
+
+
+```{r}
+# Determine k number of topics
+harmonicMean <- function(logLikelihoods, precision = 2000L) {
+  llMed <- median(logLikelihoods)
+  as.double(llMed - log(Rmpfr::mean(exp(-Rmpfr::mpfr(logLikelihoods,
+                                       prec = precision) + llMed))))
+}
+```
+
+
+```{r}
+# run a loop over the abstract with different numbers of topics to find which number of topcis is the best
+seqk <- seq(2, 100, 1)
+burnin <- 1000
+iter <- 1000
+keep <- 50
+```
+
+```{r eval=FALSE }
+system.time(fitted_many <- 
+              lapply(seqk, function(k) topicmodels::LDA(general_reduced_dtm, 
+                                                        k = k,
+                                                        method = "Gibbs",
+                                                        control = list(burnin = burnin,
+                                                                       iter = iter, 
+                                                                       keep = keep) )))
+                                                                       
+saveRDS(fitted_many, "../data/derived_data/fitted_many.rds")
+```
+
+```{r}
+fitted_many <- readRDS("../data/derived_data/fitted_many.rds")
+```
+
+```{r}
+# extract logliks from each topic
+logLiks_many <- lapply(fitted_many, function(L)  L@logLiks[-c(1:(burnin/keep))])
+
+# compute harmonic means
+hm_many <- sapply(logLiks_many, function(h) harmonicMean(h))
+
+# to know the optimal number of topics:
+optimal_number_of_topics <- seqk[which.max(hm_many)]
+
+# plot it
+library(ggplot2)
+lda_plot <- ggplot(data.frame(seqk, 
+                             hm_many), 
+                  aes(x=seqk, 
+                      y=hm_many)) + 
+  geom_path(lwd=1.5)  +
+  xlab('Number of Topics') +
+  ylab('Harmonic Mean') +
+  geom_vline(xintercept = seqk[which.max(hm_many)],
+             colour = "red") +
+  annotate("text",
+           x = 55, 
+           y = -150000, 
+           label = paste("The optimal number of topics is", 
+                         seqk[which.max(hm_many)])) +
+  theme_bw() +
+  ggtitle(expression(atop("Latent Dirichlet Allocation Analysis of SAA General Abstracts", atop(italic("How many distinct topics in the abstracts?"), ""))))
+```
+
+```{r}
+# now run the model with the optimum number of topics
+system.time(general_model <- topicmodels::LDA(general_reduced_dtm, 
+                                              optimal_number_of_topics,
+                                              method = "Gibbs", 
+                                              control = list(iter=2000, 
+                                                             seed = 0622)))
+
+# explore the model
+general_topics <- topicmodels::topics(general_model, 1)
+
+## In this case I am returning the top 30 terms.
+general_terms <- as.data.frame(topicmodels::terms(general_model, 30), 
+                               stringsAsFactors = FALSE)
+```
+
+
+```{r}
+library(tidytext)
+tidy_topics <- tidy(general_model, matrix = "beta")
+
+library(ggplot2)
+library(dplyr)
+
+tidy_topics_top_terms <- tidy_topics %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+```
+
+
+```{r}
+tidy_topics_top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+```
+
+```{r}
+tidy_documents <- tidy(general_model, matrix = "gamma")
+
+library(tidyr)
+tidy_documents_topics_gamma <-
+  tidy_documents %>% 
+    spread(topic, gamma)
+
+abstract_classifications <- 
+  tidy_documents %>%
+  group_by(document) %>%
+  top_n(1, gamma) %>%
+  ungroup() %>% 
+  arrange(desc(gamma))
+  
+abstract_classifications
+```
+
+
+
+
+
+### Colophon
+
+This report was generated on `r Sys.time()` using the following computational environment and dependencies: 
+
+```{r colophon, cache = FALSE}
+# which R packages and versions?
+devtools::session_info()
+```
+
+The current Git commit details are:
+
+```{r}
+# what commit is this file at? You may need to change the path value
+# if your Rmd is not in analysis/paper/
+git2r::repository("../..")
+```
+

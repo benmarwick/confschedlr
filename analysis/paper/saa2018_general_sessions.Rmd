@@ -43,7 +43,7 @@ library(ggplot2)
 
 ```{r eval=FALSE}
 # read in the abstracts
-general <- read_excel("../data/raw_data/General Abstracts.xlsx")
+general_2018 <- read_excel("../data/raw_data/General Abstracts_2018.xlsx")
 ```
 
 ```{r eval=FALSE}
@@ -62,41 +62,42 @@ m <- list(content = "Abstract",  # content
 
 ```{r eval=FALSE}
 # Create a corpus object from the abstracts
-general_corpus <- tm::Corpus(tm::DataframeSource(general), 
+general_2018_corpus <- tm::Corpus(tm::DataframeSource(general_2018), 
                              readerControl = list(reader = tm::readTabular(mapping = m)))
 
 # create a document term matrix
-general_tm <- tm::DocumentTermMatrix(general_corpus, 
+general_2018_tm <- tm::DocumentTermMatrix(general_2018_corpus, 
                                      control = list(stemming = TRUE, 
                                                     stopwords = TRUE,
                                                     minWordLength = 2, 
-                      s                              removeNumbers = TRUE, 
+                                                    removeNumbers = TRUE, 
                                                     removePunctuation = TRUE))
-```
 
+```
 
 
 ```{r eval=FALSE}
 # Use TF-IDF to wieght terms and remove rare ones
-term_tfidf <- 
-  tapply(general_tm$v/slam::row_sums(general_tm)[general_tm$i], 
-         general_tm$j, mean) * log2(tm::nDocs(general_tm)/slam::col_sums(general_tm > 0))
+term_2018_tfidf <- 
+  tapply(general_2018_tm$v/slam::row_sums(general_2018_tm)[general_2018_tm$i], 
+         general_2018_tm$j, mean) * log2(tm::nDocs(general_2018_tm)/slam::col_sums(general_2018_tm > 0))
 
-summary(term_tfidf)
-# Median =  0.08989
+summary(term_2018_tfidf)
+# Median =   0.08769
 ```
 
 
 ```{r eval=FALSE }
 ## Keeping the rows with tfidf >= median
-general_reduced_dtm <- general_tm[,term_tfidf >= summary(term_tfidf)[3]]
-summary(slam::col_sums(general_reduced_dtm))
+general_2018_reduced_dtm <- general_2018_tm[,term_2018_tfidf >= summary(term_2018_tfidf)[3]]
+summary(slam::col_sums(general_2018_reduced_dtm))
 # save
-saveRDS(general_reduced_dtm, "../data/derived_data/general_reduced_dtm.rds")
+saveRDS(general_2018_reduced_dtm, "../data/derived_data/general_2018_reduced_dtm.rds")
 ```
 
 ```{r}
-general_reduced_dtm <- readRDS("../data/derived_data/general_reduced_dtm.rds")
+general_2018_reduced_dtm <- readRDS("../data/derived_data/general_2018_reduced_dtm.rds")
+number_of_abstracts <- general_2018_reduced_dtm$nrow
 ```
 
 
@@ -119,49 +120,53 @@ keep <- 50
 ```
 
 ```{r eval=FALSE }
-system.time(fitted_many <- 
-              lapply(seqk, function(k) topicmodels::LDA(general_reduced_dtm, 
+system.time(fitted_many_2018 <- 
+              lapply(seqk, function(k) topicmodels::LDA(general_2018_reduced_dtm, 
                                                         k = k,
                                                         method = "Gibbs",
                                                         control = list(burnin = burnin,
                                                                        iter = iter, 
                                                                        keep = keep) )))
                                                                        
-saveRDS(fitted_many, "../data/derived_data/fitted_many.rds")
+saveRDS(fitted_many_2018, "../data/derived_data/fitted_many_2018.rds")
 ```
 
 ```{r}
-fitted_many <- readRDS("../data/derived_data/fitted_many.rds")
+fitted_many_2018 <- readRDS("../data/derived_data/fitted_many_2018.rds")
+
+# how many abstracts, if we just start from here?
+how_many_abstracts <- fitted_many_2018[[1]]@Dim[1]
 ```
 
 ```{r}
 # extract logliks from each topic
-logLiks_many <- lapply(fitted_many, function(L)  L@logLiks[-c(1:(burnin/keep))])
+logLiks_many_2018 <- lapply(fitted_many_2018, function(L)  L@logLiks[-c(1:(burnin/keep))])
 
 # compute harmonic means
-hm_many <- sapply(logLiks_many, function(h) harmonicMean(h))
+hm_many_2018 <- sapply(logLiks_many_2018, function(h) harmonicMean(h))
 
 # to know the optimal number of topics:
-optimal_number_of_topics <- seqk[which.max(hm_many)]
+optimal_number_of_topics_2018 <- seqk[which.max(hm_many_2018)]
 
 # plot it
 library(ggplot2)
 lda_plot <- ggplot(data.frame(seqk, 
-                             hm_many), 
+                             hm_many_2018), 
                   aes(x=seqk, 
-                      y=hm_many)) + 
+                      y=hm_many_2018)) + 
   geom_path(lwd=1.5)  +
   xlab('Number of Topics') +
   ylab('Harmonic Mean') +
-  geom_vline(xintercept = seqk[which.max(hm_many)],
+  geom_vline(xintercept = seqk[which.max(hm_many_2018)],
              colour = "red") +
   annotate("text",
            x = 55, 
            y = -150000, 
            label = paste("The optimal number of topics is", 
-                         seqk[which.max(hm_many)])) +
+                         seqk[which.max(hm_many_2018)])) +
   theme_bw() +
-  ggtitle(expression(atop("Latent Dirichlet Allocation Analysis of SAA General Abstracts", atop(italic("How many distinct topics in the abstracts?"), ""))))
+  ggtitle("Latent Dirichlet Allocation Analysis of SAA General Abstracts",
+          subtitle = paste0("How many distinct topics are present in the general abstracts (n = ", how_many_abstracts, ") for 2018?"))
 ```
 
 ```{r}

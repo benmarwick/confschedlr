@@ -212,20 +212,69 @@ library(tidyr)
 tidy_documents_topics_gamma <-
   tidy_documents %>% 
     spread(topic, gamma)
-
+    
 abstract_classifications <- 
   tidy_documents %>%
   group_by(document) %>%
   top_n(1, gamma) %>%
   ungroup() %>% 
   arrange(desc(gamma))
-  
-abstract_classifications
+```
+
+```{r eval=FALSE}
+mydata <- tidy_documents_topics_gamma[,-1]
+
+# Determine number of clusters
+library(NbClust)
+nclust <- NbClust(mydata, method = "kmeans")
+
+library(fpc)
+pamk.best <- pamk(mydata)
+
+# Determine number of clusters
+wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
+for (i in 2:15) wss[i] <- sum(kmeans(mydata, 
+  	centers=i)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters",
+  ylab="Within groups sum of squares")
+
+# K-Means Cluster Analysis
+fit <- kmeans(mydata, 5) # 5 cluster solution
+# get cluster means 
+aggregate(mydata,by=list(fit$cluster),FUN=mean)
+# append cluster assignment
+mydata <- data.frame(mydata, fit$cluster)
 ```
 
 
+## Wokring in a local Docker container
 
+To run this project in a local Docker container, I start a bash shell in the project directory:
 
+Do this one time only, build my Docker container from Dockerfile at top-level in my project:
+
+```
+docker build - < Dockerfile
+docker ps
+```
+
+Take note of the container ID, which you get after `docker ps`
+
+Then run my Docker container, access it via the web browser, link the project dir to the Docker drive. Make sure you're in a local directory that is sharable (C:\Users\yourname is usually good):
+
+```
+docker run -dp 8787:8787 -v ${pwd}:/home/rstudio/ -e ROOT=TRUE  <container ID>
+```
+
+Then go to `http://192.168.99.100:8787/` or `localhost:8787` in youor browser, log in (rstudio/rstudio), and start your RStudio project by double-clickin on the .Rproj file
+
+When you're done, in the shell, stop all docker containers with:
+
+```
+docker stop $(docker ps -a -q)
+```
+
+Or do `docker ps` and `docker stop <container ID>` just to stop one container. 
 
 ### Colophon
 

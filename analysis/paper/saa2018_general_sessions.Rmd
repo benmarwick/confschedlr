@@ -112,7 +112,7 @@ harmonicMean <- function(logLikelihoods, precision = 2000L) {
 
 
 ```{r}
-# run a loop over the abstract with different numbers of topics to find which number of topcis is the best
+# run a loop over the abstract with different numbers of topics to find which number of topics is the best
 seqk <- seq(2, 100, 1)
 burnin <- 1000
 iter <- 1000
@@ -157,22 +157,24 @@ lda_plot <- ggplot(data.frame(seqk,
   geom_path(lwd=1.5)  +
   xlab('Number of Topics') +
   ylab('Harmonic Mean') +
-  geom_vline(xintercept = seqk[which.max(hm_many_2018)],
+  geom_vline(xintercept = optimal_number_of_topics_2018,
              colour = "red") +
   annotate("text",
            x = 55, 
            y = -150000, 
            label = paste("The optimal number of topics is", 
-                         seqk[which.max(hm_many_2018)])) +
+                         optimal_number_of_topics_2018)) +
   theme_bw() +
   ggtitle("Latent Dirichlet Allocation Analysis of SAA General Abstracts",
           subtitle = paste0("How many distinct topics are present in the general abstracts (n = ", how_many_abstracts, ") for 2018?"))
+
+ggsave("../figures/saa2018_general_abstracts_opti_topics.png")
 ```
 
 ```{r}
 # now run the model with the optimum number of topics
-system.time(general_model <- topicmodels::LDA(general_reduced_dtm, 
-                                              optimal_number_of_topics,
+system.time(general_model <- topicmodels::LDA(general_2018_reduced_dtm, 
+                                              optimal_number_of_topics_2018,
                                               method = "Gibbs", 
                                               control = list(iter=2000, 
                                                              seed = 0622)))
@@ -202,12 +204,15 @@ tidy_topics_top_terms <- tidy_topics %>%
 
 
 ```{r}
+# show top keywords for each topic
 tidy_topics_top_terms %>%
   mutate(term = reorder(term, beta)) %>%
   ggplot(aes(term, beta, fill = factor(topic))) +
   geom_col(show.legend = FALSE) +
   facet_wrap(~ topic, scales = "free") +
   coord_flip()
+
+ggsave("../figures/keywords_for_saa2018_general_topics.png", h = 14, w = 14)
 ```
 
 ```{r}

@@ -41,9 +41,12 @@ library(ggplot2)
 
 # Introduction
 
-```{r eval=FALSE}
+```{r eval=TRUE}
 # read in the abstracts
 general_2018 <- read_excel("../data/raw_data/General Abstracts_2018.xlsx")
+
+general_2018_posters <- general_2018 %>% filter(grepl("Poster", `Presentation Format`))
+general_2018_papers  <- general_2018 %>% filter(grepl("Paper", `Presentation Format`))
 ```
 
 ```{r eval=FALSE}
@@ -62,11 +65,11 @@ m <- list(content = "Abstract",  # content
 
 ```{r eval=FALSE}
 # Create a corpus object from the abstracts
-general_2018_corpus <- tm::Corpus(tm::DataframeSource(general_2018), 
+general_2018_papers_corpus <- tm::Corpus(tm::DataframeSource(general_2018_papers), 
                              readerControl = list(reader = tm::readTabular(mapping = m)))
 
 # create a document term matrix
-general_2018_tm <- tm::DocumentTermMatrix(general_2018_corpus, 
+general_2018_papers_tm <- tm::DocumentTermMatrix(general_2018_papers_corpus, 
                                      control = list(stemming = TRUE, 
                                                     stopwords = TRUE,
                                                     minWordLength = 2, 
@@ -78,26 +81,26 @@ general_2018_tm <- tm::DocumentTermMatrix(general_2018_corpus,
 
 ```{r eval=FALSE}
 # Use TF-IDF to wieght terms and remove rare ones
-term_2018_tfidf <- 
-  tapply(general_2018_tm$v/slam::row_sums(general_2018_tm)[general_2018_tm$i], 
-         general_2018_tm$j, mean) * log2(tm::nDocs(general_2018_tm)/slam::col_sums(general_2018_tm > 0))
+term_2018_papers_tfidf <- 
+  tapply(general_2018_papers_tm$v/slam::row_sums(general_2018_papers_tm)[general_2018_papers_tm$i], 
+         general_2018_papers_tm$j, mean) * log2(tm::nDocs(general_2018_papers_tm)/slam::col_sums(general_2018_papers_tm > 0))
 
-summary(term_2018_tfidf)
-# Median =   0.08769
+summary(term_2018_papers_tfidf)
+# Median =   0.08120
 ```
 
 
 ```{r eval=FALSE }
 ## Keeping the rows with tfidf >= median
-general_2018_reduced_dtm <- general_2018_tm[,term_2018_tfidf >= summary(term_2018_tfidf)[3]]
-summary(slam::col_sums(general_2018_reduced_dtm))
+general_2018_papers_reduced_dtm <- general_2018_papers_tm[,term_2018_papers_tfidf >= summary(term_2018_papers_tfidf)[3]]
+summary(slam::col_sums(general_2018_papers_reduced_dtm))
 # save
-saveRDS(general_2018_reduced_dtm, "../data/derived_data/general_2018_reduced_dtm.rds")
+saveRDS(general_2018_papers_reduced_dtm, "../data/derived_data/general_2018_papers_reduced_dtmrds")
 ```
 
 ```{r}
-general_2018_reduced_dtm <- readRDS("../data/derived_data/general_2018_reduced_dtm.rds")
-number_of_abstracts <- general_2018_reduced_dtm$nrow
+general_2018_papers_reduced_dtm <- readRDS("../data/derived_data/general_2018_papers_reduced_dtm.rds")
+number_of_paper_abstracts <- general_2018_papers_reduced_dtm$nrow
 ```
 
 
@@ -120,82 +123,84 @@ keep <- 50
 ```
 
 ```{r eval=FALSE }
-system.time(fitted_many_2018 <- 
-              lapply(seqk, function(k) topicmodels::LDA(general_2018_reduced_dtm, 
+system.time(fitted_many_2018_papers <- 
+              lapply(seqk, function(k) topicmodels::LDA(general_2018_papers_reduced_dtm, 
                                                         k = k,
                                                         method = "Gibbs",
                                                         control = list(burnin = burnin,
                                                                        iter = iter, 
                                                                        keep = keep) )))
                                                                        
-saveRDS(fitted_many_2018, "../data/derived_data/fitted_many_2018.rds")
+saveRDS(fitted_many_2018_papers, "../data/derived_data/fitted_many_2018_papers.rds")
+
+# rerun with k = 60 to force the abstracts into 60 topics
 ```
 
 ```{r}
-fitted_many_2018 <- readRDS("../data/derived_data/fitted_many_2018.rds")
+fitted_many_2018_papers <- readRDS("../data/derived_data/fitted_many_2018_papers.rds")
 
 # how many abstracts, if we just start from here?
-how_many_abstracts <- fitted_many_2018[[1]]@Dim[1]
+how_many_paper_abstracts <- fitted_many_2018_papers[[1]]@Dim[1]
 ```
 
 ```{r}
 # extract logliks from each topic
-logLiks_many_2018 <- lapply(fitted_many_2018, function(L)  L@logLiks[-c(1:(burnin/keep))])
+logLiks_many_2018_papers <- lapply(fitted_many_2018_papers, function(L)  L@logLiks[-c(1:(burnin/keep))])
 
 # compute harmonic means
-hm_many_2018 <- sapply(logLiks_many_2018, function(h) harmonicMean(h))
+hm_many_2018_papers <- sapply(logLiks_many_2018_papers, function(h) harmonicMean(h))
 
 # to know the optimal number of topics:
-optimal_number_of_topics_2018 <- seqk[which.max(hm_many_2018)]
+optimal_number_of_topics_2018_papers <- seqk[which.max(hm_many_2018_papers)]
 
 # plot it
 library(ggplot2)
 lda_plot <- ggplot(data.frame(seqk, 
-                             hm_many_2018), 
+                             hm_many_2018_papers), 
                   aes(x=seqk, 
-                      y=hm_many_2018)) + 
+                      y=hm_many_2018_papers)) + 
   geom_path(lwd=1.5)  +
   xlab('Number of Topics') +
   ylab('Harmonic Mean') +
-  geom_vline(xintercept = optimal_number_of_topics_2018,
+  geom_vline(xintercept = optimal_number_of_topics_2018_papers,
              colour = "red") +
   annotate("text",
            x = 55, 
            y = -150000, 
            label = paste("The optimal number of topics is", 
-                         optimal_number_of_topics_2018)) +
+                         optimal_number_of_topics_2018_papers)) +
   theme_bw() +
   ggtitle("Latent Dirichlet Allocation Analysis of SAA General Abstracts",
-          subtitle = paste0("How many distinct topics are present in the general abstracts (n = ", how_many_abstracts, ") for 2018?"))
+          subtitle = paste0("How many distinct topics are present in the general paper abstracts (n = ", how_many_paper_abstracts, ") for 2018?"))
 
-ggsave("../figures/saa2018_general_abstracts_opti_topics.png")
+ggsave("../figures/saa2018_general_abstracts_papers_opti_topics.png")
 ```
 
 ```{r}
 # now run the model with the optimum number of topics
-system.time(general_model <- topicmodels::LDA(general_2018_reduced_dtm, 
-                                              optimal_number_of_topics_2018,
+system.time(general_model_papers <- topicmodels::LDA(general_2018_papers_reduced_dtm, 
+                                              optimal_number_of_topics_2018_papers,
                                               method = "Gibbs", 
                                               control = list(iter=2000, 
                                                              seed = 0622)))
 
 # explore the model
-general_topics <- topicmodels::topics(general_model, 1)
+general_topics_papers <- topicmodels::topics(general_model_papers, 1)
 
 ## In this case I am returning the top 30 terms.
-general_terms <- as.data.frame(topicmodels::terms(general_model, 30), 
+general_terms_papers <- as.data.frame(topicmodels::terms(general_model_papers, 30), 
                                stringsAsFactors = FALSE)
 ```
 
 
 ```{r}
 library(tidytext)
-tidy_topics <- tidy(general_model, matrix = "beta")
+tidy_topics_papers <- tidy(general_model_papers, matrix = "beta")
 
 library(ggplot2)
 library(dplyr)
 
-tidy_topics_top_terms <- tidy_topics %>%
+tidy_topics_papers_top_terms <- tidy_topics_papers %>%
   group_by(topic) %>%
   top_n(10, beta) %>%
   ungroup() %>%
@@ -205,37 +210,47 @@ tidy_topics_top_terms <- tidy_topics %>%
 
 ```{r}
 # show top keywords for each topic
-tidy_topics_top_terms %>%
+tidy_topics_papers_top_terms %>%
   mutate(term = reorder(term, beta)) %>%
   ggplot(aes(term, beta, fill = factor(topic))) +
   geom_col(show.legend = FALSE) +
   facet_wrap(~ topic, scales = "free") +
   coord_flip()
 
-ggsave("../figures/keywords_for_saa2018_general_topics.png", h = 14, w = 14)
+ggsave("../figures/keywords_for_saa2018_general_papers_topics.png", h = 14, w = 14)
 ```
 
 ```{r}
-tidy_documents <- tidy(general_model, matrix = "gamma")
+tidy_documents_papers <- tidy(general_model_papers, matrix = "gamma")
 
 library(tidyr)
-tidy_documents_topics_gamma <-
-  tidy_documents %>% 
+tidy_documents_papers_topics_gamma <-
+  tidy_documents_papers %>% 
     spread(topic, gamma)
 
-abstract_classifications <- 
-  tidy_documents %>%
+abstract_classifications_papers <- 
+  tidy_documents_papers %>%
   group_by(document) %>%
   top_n(1, gamma) %>%
   ungroup() %>% 
-  arrange(desc(gamma))
+  arrange(desc(gamma)) %>% 
+  mutate(document = as.numeric(document))
   
-abstract_classifications
+abstract_classifications_papers
 ```
 
+```{r}
+# put topics back onto abstract spreadsheet
+# abstract_ids <- dimnames(general_2018_reduced_dtm)$Docs
+# general_2018$`Abstract Id`
 
+general_2018_papers_with_topics <- 
+  general_2018_papers %>% 
+  left_join(abstract_classifications_papers, 
+            by = c("Abstract Id" = "document"))
 
-
+write.csv(general_2018_papers_with_topics, "../data/derived_data/general_2018_papers_with_topics.csv")
+```
 
 ### Colophon
 

@@ -1,1 +1,0 @@
-the lukas-tooth and price algorithm for empirical calibration of x-ray fluorescence systems has become the standard for archaeometry, particularly in obsidian sourcing. here, a new way of using the computer language r and html5 websites is introduced to calibrate these systems.

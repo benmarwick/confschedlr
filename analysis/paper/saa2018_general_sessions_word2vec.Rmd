@@ -1,0 +1,272 @@
+---
+title: "Title Goes Here"
+author:
+  - author 1
+  - author 2
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+    bookdown::html_document2:
+    fig_caption: yes
+    reference_docx: templates/template.docx
+bibliography: references.bib
+csl: journal-of-archaeological-science.csl
+abstract: |
+  Text of abstract
+keywords: |
+  keyword 1; keyword 2; keyword 3
+highlights: |
+  These are the highlights. 
+---
+
+
+<!-- This is the format for text comments that will be ignored during renderings. Do not put R code in these comments because it will not be ignored. -->
+
+```{r, setup, echo = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  echo = FALSE,
+  comment = "#>",
+  fig.path = "figures"
+)
+
+library(saaabstracts)
+library(tm)
+library(topicmodels)
+library(readxl)
+library(Rmpfr)
+library(tidyverse)
+```
+
+# Introduction
+
+```{r eval=TRUE}
+# read in the abstracts
+general_2018 <- read_excel("../data/raw_data/General Abstracts_2018.xlsx")
+
+general_2018_posters <- general_2018 %>% filter(grepl("Poster", `Presentation Format`))
+general_2018_papers  <- general_2018 %>% filter(grepl("Paper", `Presentation Format`))
+
+# clean geo
+clean_geo <- function(x){
+  tmp <- stringr::str_trim(tolower(gsub("[[:punct:]]|\r\n| and ", " ", x)))
+  tmp <- gsub(" ", "_", tmp)
+  tmp <- gsub("_{2}", "_", tmp)
+  tmp
+}
+
+general_2018_papers$geo <- 
+  unlist(purrr::map(general_2018_papers$`Geographic Focus`, ~clean_geo(.x)))
+
+general_2018_papers$kw1 <- 
+  unlist(purrr::map(general_2018_papers$Keyword1, ~clean_geo(.x)))
+
+general_2018_papers$kw2 <- 
+  unlist(purrr::map(general_2018_papers$Keyword2, ~clean_geo(.x)))
+
+general_2018_papers$kw3 <- 
+  unlist(purrr::map(general_2018_papers$Keyword3, ~clean_geo(.x)))
+
+general_2018_papers$text_to_model <- 
+  with(general_2018_papers, paste(geo, kw1, kw2, kw3))
+```
+
+
+```{r}
+# clean text to model
+general_2018_papers$text_to_model  <- 
+  stringr::str_trim(tolower(gsub("\\/|:|&", " ", general_2018_papers$text_to_model)))
+
+general_2018_papers$text_to_model  <- 
+  gsub(" and | archaeology | analysis |\r\n", " ", general_2018_papers$text_to_model)
+
+```
+
+```{r}
+# Create a corpus object from the text to mode
+
+general_2018_papers_corpus <- tm::Corpus(tm::VectorSource(general_2018_papers$text_to_model ))
+
+ndocs <- length(general_2018_papers_corpus)
+# ignore extremely rare words i.e. terms that appear in less then 1% of the documents
+minTermFreq <- ndocs * 0.01
+# ignore overly common words i.e. terms that appear in more than 50% of the documents
+maxTermFreq <- ndocs * .5
+
+# create a document term matrix
+general_2018_papers_tm <- tm::DocumentTermMatrix(general_2018_papers_corpus, 
+                                     control = list(stemming = TRUE, 
+                                                    stopwords = TRUE,
+                                                     wordLengths=c(4,30),  
+                                                    removeNumbers = TRUE, 
+                                                     bounds = list(global = c(minTermFreq, maxTermFreq)),
+                                                    removePunctuation = TRUE))
+```
+
+
+```{r}
+library(wordVectors)
+library(magrittr)
+library(stringr)
+
+# Write abstracts out to text files
+lapply(1:length(general_2018_papers$Abstract),
+     function(i) write.table(tolower(str_trim(general_2018_papers$Abstract[i])),
+                  file = paste0("abstracts/", general_2018_papers$`Abstract Id`[i], ".txt"),
+                  quote = FALSE, 
+                  row.names = FALSE,
+                  col.names = FALSE))
+
+length(list.files("abstracts/")) #178
+
+prep_word2vec(origin = "abstracts/",
+              destination = "abstracts/abstracts.txt",
+              lowercase = TRUE,
+              bundle_ngrams = 2)
+
+model = train_word2vec("abstracts/abstracts.txt","abstracts/abstracts.bin",
+                       vectors=200,
+                       threads=4,
+                       window=12,
+                       iter=5,
+                       negative_samples=0)
+
+# model = read.vectors("cookbook_vectors.bin")
+
+plot(model,perplexity=50)
+
+set.seed(10)
+centers = 50
+clustering = kmeans(model,
+                    centers = centers,
+                    iter.max = 40)
+
+sapply(sample(1:centers,10),function(n) {
+  names(clustering$cluster[clustering$cluster==n][1:10])
+})
+
+```
+
+```{r}
+library(stringr)
+library(text2vec)
+
+itn <- map(general_2018_papers$Abstract, ~itoken(.x))
+
+it = itoken(general_2018_papers$Abstract, progressbar = FALSE)
+v = create_vocabulary(it) %>% prune_vocabulary(doc_proportion_max = 0.1, term_count_min = 5)
+vectorizer = vocab_vectorizer(v)
+
+# Jaccard similarity
+# they will be in the same space because we use same vectorizer
+# hash_vectorizer will also work fine
+dtm1 = create_dtm(it1, vectorizer)
+
+dtm2 = create_dtm(it2, vectorizer)
+
+# Once we have representation of documents in vector space we are almost done. One thing remains - call sim2():
+
+d1_d2_jac_sim = sim2(dtm1, dtm2, method = "jaccard", norm = "none")
+# Check result:
+
+dim(d1_d2_jac_sim)
+## [1] 300 200
+d1_d2_jac_sim[1:2, 1:5]
+```
+
+
+```{r}
+library(stringr)
+library(text2vec)
+data("movie_review")
+# select 500 rows for faster running times
+movie_review = movie_review[1:500, ]
+prep_fun = function(x) {
+  x %>% 
+    # make text lower case
+    str_to_lower %>% 
+    # remove non-alphanumeric symbols
+    str_replace_all("[^[:alnum:]]", " ") %>% 
+    # collapse multiple spaces
+    str_replace_all("\\s+", " ")
+}
+movie_review$review_clean = prep_fun(movie_review$review)
+
+doc_set_1 = movie_review[1:300, ]
+it1 = itoken(doc_set_1$review_clean, progressbar = FALSE)
+
+# specially take different number of docs in second set
+doc_set_2 = movie_review[301:500, ]
+it2 = itoken(doc_set_2$review_clean, progressbar = FALSE)
+
+it = itoken(movie_review$review_clean, progressbar = FALSE)
+v = create_vocabulary(it) %>% prune_vocabulary(doc_proportion_max = 0.1, term_count_min = 5)
+vectorizer = vocab_vectorizer(v)
+
+# Jaccard similarity
+# they will be in the same space because we use same vectorizer
+# hash_vectorizer will also work fine
+dtm1 = create_dtm(it1, vectorizer)
+dim(dtm1)
+## [1]  300 2338
+dtm2 = create_dtm(it2, vectorizer)
+dim(dtm2)
+## [1]  200 2338
+# Once we have representation of documents in vector space we are almost done. One thing remains - call sim2():
+
+d1_d2_jac_sim = sim2(dtm1, dtm2, method = "jaccard", norm = "none")
+# Check result:
+
+dim(d1_d2_jac_sim)
+## [1] 300 200
+d1_d2_jac_sim[1:2, 1:5]
+
+
+
+```
+
+
+```{r}
+m  <- as.matrix(general_2018_papers_tm)
+distMatrix <- dist(m, method="euclidean")
+
+groups <- hclust(distMatrix,method="ward.D")
+plot(groups, cex=0.9, hang=-1)
+rect.hclust(groups, k=70)
+
+# see what cluster each abstract is in:
+cuts <- cutree(groups, k = 50)
+```
+
+
+
+```{r}
+# put topics back onto abstract spreadsheet
+# abstract_ids <- dimnames(general_2018_reduced_dtm)$Docs
+# general_2018$`Abstract Id`
+
+general_2018_papers_with_topics <- 
+  bind_cols(general_2018_papers, data_frame(cuts))
+ 
+
+write.csv(general_2018_papers_with_topics, "../data/derived_data/general_2018_papers_with_clusters.csv")
+```
+
+### Colophon
+
+This report was generated on `r Sys.time()` using the following computational environment and dependencies: 
+
+```{r colophon, cache = FALSE}
+# which R packages and versions?
+devtools::session_info()
+```
+
+The current Git commit details are:
+
+```{r}
+# what commit is this file at? You may need to change the path value
+# if your Rmd is not in analysis/paper/
+git2r::repository("../..")
+```
+

@@ -57,46 +57,46 @@ clean_geo <- function(x){
   tmp
 }
 
-general_2018_papers$geo <- 
-  unlist(purrr::map(general_2018_papers$`Geographic Focus`, ~clean_geo(.x)))
+general_2018_posters$geo <- 
+  unlist(purrr::map(general_2018_posters$`Geographic Focus`, ~clean_geo(.x)))
 
-general_2018_papers$kw1 <- 
-  unlist(purrr::map(general_2018_papers$Keyword1, ~clean_geo(.x)))
+general_2018_posters$kw1 <- 
+  unlist(purrr::map(general_2018_posters$Keyword1, ~clean_geo(.x)))
 
-general_2018_papers$kw2 <- 
-  unlist(purrr::map(general_2018_papers$Keyword2, ~clean_geo(.x)))
+general_2018_posters$kw2 <- 
+  unlist(purrr::map(general_2018_posters$Keyword2, ~clean_geo(.x)))
 
-general_2018_papers$kw3 <- 
-  unlist(purrr::map(general_2018_papers$Keyword3, ~clean_geo(.x)))
+general_2018_posters$kw3 <- 
+  unlist(purrr::map(general_2018_posters$Keyword3, ~clean_geo(.x)))
 
-general_2018_papers$text_to_model <- 
-  with(general_2018_papers, paste(geo, kw1, kw2, kw3))
+general_2018_posters$text_to_model <- 
+  with(general_2018_posters, paste(geo, kw1, kw2, kw3))
 ```
 
 
 ```{r}
 # clean text to model
-general_2018_papers$text_to_model  <- 
-  stringr::str_trim(tolower(gsub("\\/|:|&", " ", general_2018_papers$text_to_model)))
+general_2018_posters$text_to_model  <- 
+  stringr::str_trim(tolower(gsub("\\/|:|&", " ", general_2018_posters$text_to_model)))
 
-general_2018_papers$text_to_model  <- 
-  gsub(" and | archaeology | analysis |\r\n", " ", general_2018_papers$text_to_model)
+general_2018_posters$text_to_model  <- 
+  gsub(" and | archaeology | analysis |\r\n", " ", general_2018_posters$text_to_model)
 
 ```
 
 ```{r}
 # Create a corpus object from the text to mode
 
-general_2018_papers_corpus <- tm::Corpus(tm::VectorSource(general_2018_papers$text_to_model ))
+general_2018_posters_corpus <- tm::Corpus(tm::VectorSource(general_2018_posters$text_to_model ))
 
-ndocs <- length(general_2018_papers_corpus)
+ndocs <- length(general_2018_posters_corpus)
 # ignore extremely rare words i.e. terms that appear in less then 1% of the documents
 minTermFreq <- ndocs * 0.01
 # ignore overly common words i.e. terms that appear in more than 50% of the documents
 maxTermFreq <- ndocs * 0.5
 
 # create a document term matrix
-general_2018_papers_tm <- tm::DocumentTermMatrix(general_2018_papers_corpus, 
+general_2018_posters_tm <- tm::DocumentTermMatrix(general_2018_posters_corpus, 
                                      control = list(stemming = TRUE, 
                                                     stopwords = TRUE,
                                                     wordLengths=c(4,30),  
@@ -109,7 +109,7 @@ general_2018_papers_tm <- tm::DocumentTermMatrix(general_2018_papers_corpus,
 Distance matrix
 
 ```{r}
-m  <- as.matrix(general_2018_papers_tm)
+m  <- as.matrix(general_2018_posters_tm)
 distMatrix <- dist(m, method="euclidean")
 ```
 
@@ -135,6 +135,53 @@ rect.hclust(groups, k)
 cuts <- cutree(groups, k)
 ```
 
+```{r}
+# Make clustering with `sc_clustering`
+library(scclust)
+my_dist <- distances(m)
+my_clustering <- sc_clustering(my_dist, 3)
+
+# Refine clustering with `hierarchical_clustering`
+my_refined_clustering <- hierarchical_clustering(my_dist,
+                                                 size_constraint = 4,
+                                                 existing_clustering = my_clustering)
+
+
+cuts <- my_refined_clustering 
+```
+
+```{r}
+hc <- groups
+
+unnest <- function(x) { # from Vlo's answer
+  if(is.null(names(x))) x
+  else c(list(all=unname(unlist(x))), do.call(c, lapply(x, unnest)))
+}
+
+cuts <- hc$height + 1e-9
+
+min_size <- 10
+smallest <- 4
+i <- 0
+
+while(smallest < min_size & i <= length(cuts)){
+  h_i <- cuts[i <- i+1]
+  if(i > length(cuts)){
+    warning("Couldn't find a cluster big enough.")
+  }
+  else  smallest <- 
+           Reduce(min, 
+                  lapply(X = unnest(cut(as.dendrogram(hc), h=h_i)$lower), 
+                         FUN = attr, which = "members") ) # from lukeA's comment
+}
+h_i
+
+cut(as.dendrogram(hc), h=h_i/2)
+```
+
+
+
+
 How many items in each cluster
 
 ```{r}
@@ -157,11 +204,11 @@ median(freqs_per_cluster$n) # 10
 # abstract_ids <- dimnames(general_2018_reduced_dtm)$Docs
 # general_2018$`Abstract Id`
 
-general_2018_papers_with_topics <- 
-  bind_cols(general_2018_papers, data_frame(cuts))
+general_2018_posters_with_topics <- 
+  bind_cols(general_2018_posters, data_frame(cuts))
  
 
-write.csv(general_2018_papers_with_topics, "../data/derived_data/general_2018_papers_with_clusters.csv")
+write.csv(general_2018_posters_with_topics, "../data/derived_data/general_2018_posters_with_clusters.csv")
 ```
 
 ### Colophon

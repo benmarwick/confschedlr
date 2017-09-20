@@ -43,7 +43,7 @@ library(tidyverse)
 
 ```{r eval=TRUE}
 # read in the abstracts
-general_2018 <- read_excel("../data/raw_data/General Abstracts_2018.xlsx")
+general_2018 <- ab# read_excel("../data/raw_data/General Abstracts_2018.xlsx")
 
 general_2018_posters <- general_2018 %>% filter(grepl("Poster", `Presentation Format`))
 general_2018_papers  <- general_2018 %>% filter(grepl("Paper", `Presentation Format`))
@@ -69,8 +69,12 @@ general_2018_papers$kw2 <-
 general_2018_papers$kw3 <- 
   unlist(purrr::map(general_2018_papers$Keyword3, ~clean_geo(.x)))
 
+library(stringi)
 general_2018_papers$text_to_model <- 
-  with(general_2018_papers, paste(geo, kw1, kw2, kw3))
+  paste(stri_dup(paste(general_2018_papers$geo, ""), 4),
+        stri_dup(paste(general_2018_papers$kw1, ""), 3),
+        general_2018_papers$kw2, 
+        general_2018_papers$kw3)
 ```
 
 
@@ -144,7 +148,7 @@ cuts %>%
   data_frame(cuts = .,
              freq = names(.)) %>% 
   group_by(cuts) %>% 
-  tally() 
+  tally(sort = TRUE) 
 
 hist(freqs_per_cluster$n)
 
@@ -161,8 +165,31 @@ general_2018_papers_with_topics <-
   bind_cols(general_2018_papers, data_frame(cuts))
  
 
-write.csv(general_2018_papers_with_topics, "../data/derived_data/general_2018_papers_with_clusters.csv")
+write.csv(general_2018_papers_with_topics,  "../data/derived_data/general_2018_papers_with_clusters.csv")
 ```
+
+
+Compare
+
+```{r}
+ab <- read_excel("../data/derived_data/Copy of general_2018_papers_with_clusters_AB.xlsx")
+
+compare <- left_join(general_2018_papers_with_topics, ab, by = "Abstract Id")
+
+compare_groups <- 
+compare %>% 
+  select(cuts.x, cuts.y)
+```
+
+reclassify using weighted keywords
+
+```{r}
+
+```
+
+
+
+
 
 ### Colophon
 

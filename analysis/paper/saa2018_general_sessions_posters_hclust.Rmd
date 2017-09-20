@@ -135,48 +135,141 @@ rect.hclust(groups, k)
 cuts <- cutree(groups, k)
 ```
 
-```{r}
-# Make clustering with `sc_clustering`
-library(scclust)
-my_dist <- distances(m)
-my_clustering <- sc_clustering(my_dist, 3)
-
-# Refine clustering with `hierarchical_clustering`
-my_refined_clustering <- hierarchical_clustering(my_dist,
-                                                 size_constraint = 4,
-                                                 existing_clustering = my_clustering)
-
-
-cuts <- my_refined_clustering 
-```
 
 ```{r}
+library(dynamicTreeCut)
+maxCoreScatter <- 0.99
+minGap <- (1 - maxCoreScatter) * 0.01
+dynamicCut <- cutreeDynamic(groups, 
+                           minClusterSize=4, 
+                           method="hybrid", 
+                           distM=as.matrix(dist(m, method="euclidean")), 
+                           deepSplit=4, 
+                           maxCoreScatter=maxCoreScatter, 
+                           maxAbsCoreScatter=NULL, 
+                           minAbsGap=NULL)
+
+hist(table(dynamicCut))
+
+xfreqs_per_cluster <- 
+dynamicCut %>%
+  data_frame(dynamicCut = .,
+             freq = names(.)) %>% 
+  group_by(dynamicCut) %>% 
+  tally(sort=TRUE)
+
+hist(xfreqs_per_cluster$n)
+
+library(dendextend)
 hc <- groups
+dend <- as.dendrogram(hc)
+heights_per_k.dendrogram(dend)
 
 unnest <- function(x) { # from Vlo's answer
   if(is.null(names(x))) x
   else c(list(all=unname(unlist(x))), do.call(c, lapply(x, unnest)))
 }
 
-cuts <- hc$height + 1e-9
+hc <- groups
+cuts2 <- hc$height + 1e-9
+# my experiment
+for(i in seq_along(cuts2)){
+  n <- attr(cut(as.dendrogram(groups), h=3)$lower[[i]], "members")
+  print(n)
+}
 
-min_size <- 10
-smallest <- 4
+my_list <- cut(as.dendrogram(groups), h=3)
+map(my_list, unnest(.x)$lower)
+
+
+map(cut(as.dendrogram(groups), h=3), ~attr(.x$lower, "members"))
+
+xcuts <- cutree(groups, k)
+
+
+
+xfreqs_per_cluster <- 
+xcuts %>%
+  data_frame(cuts = .,
+             freq = names(.)) %>% 
+  group_by(cuts) %>% 
+  tally(sort=TRUE) 
+
+xmax <- max(xfreqs_per_cluster$n)
+xmin <- min(xfreqs_per_cluster$n)
+
+max_size <- 16
+min_size <- 4
+n <- 0
+
+while(xmax <= max_size &  xmin >= min_size & n <= length(xcuts)){
+  n <-  n + 1
+  ycuts <- cutree(groups, n)
+
+
+xfreqs_per_cluster <- 
+xcuts %>%
+  data_frame(cuts = .,
+             freq = names(.)) %>% 
+  group_by(cuts) %>% 
+  tally(sort=TRUE) 
+
+xmax <- max(xfreqs_per_cluster$n)
+xmin <- min(xfreqs_per_cluster$n)
+
+  xcuts <- cutree(groups, n)
+  
+}
+
+
+
+
+```
+
+```{r}
+
+
+hc <- groups
+
+hc$size
+
+unnest <- function(x) { # from Vlo's answer
+  if(is.null(names(x))) x
+  else c(list(all=unname(unlist(x))), do.call(c, lapply(x, unnest)))
+}
+
+cuts2 <- hc$height + 1e-9
+
+biggest <- 50
+smallest <- 0
+
+max_size <- 16
+min_size <- 4
+
 i <- 0
 
-while(smallest < min_size & i <= length(cuts)){
-  h_i <- cuts[i <- i+1]
-  if(i > length(cuts)){
+while(smallest < min_size & 
+      biggest > max_size &
+      i <= length(cuts2)){
+  h_i <- cuts2[i <- i+1]
+  if(i > length(cuts2)){
     warning("Couldn't find a cluster big enough.")
   }
   else  smallest <- 
            Reduce(min, 
                   lapply(X = unnest(cut(as.dendrogram(hc), h=h_i)$lower), 
                          FUN = attr, which = "members") ) # from lukeA's comment
+  
+  biggest <- 
+           Reduce(max, 
+                  lapply(X = unnest(cut(as.dendrogram(hc), h=h_i)$upper), 
+                         FUN = attr, which = "members") ) # from lukeA's comment
+  
+  print(paste0("biggest: ", biggest, ", smallest: ", smallest, " i: ", i, " h_i: ", h_i))
 }
 h_i
 
-cut(as.dendrogram(hc), h=h_i/2)
+cut(as.dendrogram(hc), h=h_i)
 ```
 
 
@@ -191,7 +284,7 @@ cuts %>%
   data_frame(cuts = .,
              freq = names(.)) %>% 
   group_by(cuts) %>% 
-  tally() 
+  tally(sort=TRUE) 
 
 hist(freqs_per_cluster$n)
 

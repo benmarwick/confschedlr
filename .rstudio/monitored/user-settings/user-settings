@@ -1,0 +1,3 @@
+contextIdentifier="D0715F55"
+errorHandlerType="1"
+uiPrefs="{\n    \"pane_config\" : {\n        \"consoleLeftOnTop\" : false,\n        \"consoleRightOnTop\" : true,\n        \"panes\" : [\n            \"Source\",\n            \"TabSet1\",\n            \"Console\",\n            \"TabSet2\"\n        ],\n        \"tabSet1\" : [\n            \"Environment\",\n            \"History\",\n            \"Connections\",\n            \"Build\",\n            \"VCS\",\n            \"Presentation\"\n        ],\n        \"tabSet2\" : [\n            \"Files\",\n            \"Plots\",\n            \"Packages\",\n            \"Help\",\n            \"Viewer\"\n        ]\n    }\n}"

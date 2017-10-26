@@ -12,10 +12,10 @@ RUN . /etc/environment \
   # Install linux depedendencies here
   # e.g. need this for ggforce::geom_sina
   && sudo apt-get update \
-  && sudo apt-get install libudunits2-dev libgmp3-dev libmpfr-dev libgsl-dev -y \
-
+  && sudo apt-get install libudunits2-dev libgmp3-dev libmpfr-dev libgsl0-dev -y \
+  
   # build this compendium package
-  && R -e "devtools::install('/saaabstracts', dep=TRUE)" \
+  # && R -e "devtools::install('/saaabstracts', dep=TRUE)" \
 
  # render the manuscript into a docx
-  && R -e "rmarkdown::render('/saaabstracts/analysis/paper/paper.Rmd')"
+ # && R -e "rmarkdown::render('/saaabstracts/analysis/paper/paper.Rmd')"

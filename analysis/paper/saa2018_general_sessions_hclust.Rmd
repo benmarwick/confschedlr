@@ -1,0 +1,183 @@
+---
+title: "Title Goes Here"
+author:
+  - author 1
+  - author 2
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+    bookdown::html_document2:
+    fig_caption: yes
+    reference_docx: templates/template.docx
+bibliography: references.bib
+csl: journal-of-archaeological-science.csl
+abstract: |
+  Text of abstract
+keywords: |
+  keyword 1; keyword 2; keyword 3
+highlights: |
+  These are the highlights. 
+---
+
+
+<!-- This is the format for text comments that will be ignored during renderings. Do not put R code in these comments because it will not be ignored. -->
+
+```{r, setup, echo = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  echo = FALSE,
+  comment = "#>",
+  fig.path = "figures"
+)
+
+library(saaabstracts)
+library(tm)
+library(topicmodels)
+library(readxl)
+library(Rmpfr)
+library(tidyverse)
+```
+
+# Introduction
+
+```{r eval=TRUE}
+# read in the abstracts
+general_2018 <- read_excel("../data/raw_data/General Abstracts_2018.xlsx")
+
+general_2018_posters <- general_2018 %>% filter(grepl("Poster", `Presentation Format`))
+general_2018_papers  <- general_2018 %>% filter(grepl("Paper", `Presentation Format`))
+
+# clean geo
+clean_geo <- function(x){
+  tmp <- stringr::str_trim(tolower(gsub("[[:punct:]]|\r\n| and ", " ", x)))
+  tmp <- gsub("other", "", tmp)
+  tmp <- gsub(" ", "_", tmp)
+  tmp <- gsub("_{2}", "_", tmp)
+  tmp
+}
+
+general_2018_papers$geo <- 
+  unlist(purrr::map(general_2018_papers$`Geographic Focus`, ~clean_geo(.x)))
+
+general_2018_papers$kw1 <- 
+  unlist(purrr::map(general_2018_papers$Keyword1, ~clean_geo(.x)))
+
+general_2018_papers$kw2 <- 
+  unlist(purrr::map(general_2018_papers$Keyword2, ~clean_geo(.x)))
+
+general_2018_papers$kw3 <- 
+  unlist(purrr::map(general_2018_papers$Keyword3, ~clean_geo(.x)))
+
+general_2018_papers$text_to_model <- 
+  with(general_2018_papers, paste(geo, kw1, kw2, kw3))
+```
+
+
+```{r}
+# clean text to model
+general_2018_papers$text_to_model  <- 
+  stringr::str_trim(tolower(gsub("\\/|:|&", " ", general_2018_papers$text_to_model)))
+
+general_2018_papers$text_to_model  <- 
+  gsub(" and | archaeology | analysis |\r\n", " ", general_2018_papers$text_to_model)
+
+```
+
+```{r}
+# Create a corpus object from the text to mode
+
+general_2018_papers_corpus <- tm::Corpus(tm::VectorSource(general_2018_papers$text_to_model ))
+
+ndocs <- length(general_2018_papers_corpus)
+# ignore extremely rare words i.e. terms that appear in less then 1% of the documents
+minTermFreq <- ndocs * 0.01
+# ignore overly common words i.e. terms that appear in more than 50% of the documents
+maxTermFreq <- ndocs * 0.5
+
+# create a document term matrix
+general_2018_papers_tm <- tm::DocumentTermMatrix(general_2018_papers_corpus, 
+                                     control = list(stemming = TRUE, 
+                                                    stopwords = TRUE,
+                                                    wordLengths=c(4,30),  
+                                                    removeNumbers = TRUE, 
+                                                    bounds = list(global = c(minTermFreq, maxTermFreq)),
+                                                    removePunctuation = TRUE))
+```
+
+
+Distance matrix
+
+```{r}
+m  <- as.matrix(general_2018_papers_tm)
+distMatrix <- dist(m, method="euclidean")
+```
+
+How many clusters?
+
+```{r}
+library(apcluster)
+d.apclus <- apcluster(negDistMat(r=2), m)
+k <- length(d.apclus@clusters)
+
+windows()
+heatmap(d.apclus)
+```
+
+Cluster analysis and dendrogram
+
+```{r}
+groups <- hclust(distMatrix,method="ward.D")
+plot(groups, cex=0.9, hang=-1)
+rect.hclust(groups, k)
+
+# see what cluster each abstract is in:
+cuts <- cutree(groups, k)
+```
+
+How many items in each cluster
+
+```{r}
+# histogram
+freqs_per_cluster <- 
+cuts %>%
+  data_frame(cuts = .,
+             freq = names(.)) %>% 
+  group_by(cuts) %>% 
+  tally() 
+
+hist(freqs_per_cluster$n)
+
+median(freqs_per_cluster$n) # 10
+```
+
+
+```{r}
+# put topics back onto abstract spreadsheet
+# abstract_ids <- dimnames(general_2018_reduced_dtm)$Docs
+# general_2018$`Abstract Id`
+
+general_2018_papers_with_topics <- 
+  bind_cols(general_2018_papers, data_frame(cuts))
+ 
+
+write.csv(general_2018_papers_with_topics, "../data/derived_data/general_2018_papers_with_clusters.csv")
+```
+
+### Colophon
+
+This report was generated on `r Sys.time()` using the following computational environment and dependencies: 
+
+```{r colophon, cache = FALSE}
+# which R packages and versions?
+devtools::session_info()
+```
+
+The current Git commit details are:
+
+```{r}
+# what commit is this file at? You may need to change the path value
+# if your Rmd is not in analysis/paper/
+git2r::repository("../..")
+```
+

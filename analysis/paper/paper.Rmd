@@ -70,7 +70,7 @@ general_tm <- tm::DocumentTermMatrix(general_corpus,
                                      control = list(stemming = TRUE, 
                                                     stopwords = TRUE,
                                                     minWordLength = 2, 
-                                                    removeNumbers = TRUE, 
+                      s                              removeNumbers = TRUE, 
                                                     removePunctuation = TRUE))
 ```
 
@@ -101,6 +101,24 @@ general_reduced_dtm <- readRDS("../data/derived_data/general_reduced_dtm.rds")
 
 
 ```{r}
+library(ldatuning)
+result <- FindTopicsNumber(
+  general_reduced_dtm,
+  topics = seq(from = 2, to = 100, by = 2),
+  metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "Gibbs",
+  control = list(seed = 77),
+  mc.cores = 2L,
+  verbose = TRUE
+)
+
+knitr::kable(result)
+FindTopicsNumber_plot(result)
+```
+
+
+
+```{r}
 # Determine k number of topics
 harmonicMean <- function(logLikelihoods, precision = 2000L) {
   llMed <- median(logLikelihoods)
@@ -108,6 +126,8 @@ harmonicMean <- function(logLikelihoods, precision = 2000L) {
                                        prec = precision) + llMed))))
 }
 ```
+
+
 
 
 ```{r}
@@ -444,13 +464,11 @@ session_slot_day_part <-
 
 ```
 
+## Working in a local Docker container
 
-
-sessions = 
-
-## Wokring in a local Docker container
 
 To run this project in a local Docker container, I start a bash shell in the project directory:
+
 
 Do this one time only, build my Docker container from Dockerfile at top-level in my project:
 

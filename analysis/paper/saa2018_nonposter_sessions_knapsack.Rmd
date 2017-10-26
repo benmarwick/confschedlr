@@ -1,0 +1,289 @@
+---
+title: "Title Goes Here"
+author:
+  - author 1
+  - author 2
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+    bookdown::html_document2:
+    fig_caption: yes
+    reference_docx: templates/template.docx
+bibliography: references.bib
+csl: journal-of-archaeological-science.csl
+abstract: |
+  Text of abstract
+keywords: |
+  keyword 1; keyword 2; keyword 3
+highlights: |
+  These are the highlights. 
+---
+
+
+<!-- This is the format for text comments that will be ignored during renderings. Do not put R code in these comments because it will not be ignored. -->
+
+```{r, setup, echo = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  echo = FALSE,
+  comment = "#>",
+  fig.path = "figures"
+)
+
+library(saaabstracts)
+library(tm)
+library(topicmodels)
+library(readxl)
+library(Rmpfr)
+library(ggplot2)
+```
+
+# Introduction
+
+## Knapsack
+
+We have how many sessions?
+
+```{r}
+library(readxl)
+org_sessions <- read_excel("../data/raw_data/Organized Session Abstracts_2018_AB.xlsx")
+
+gen_sessions <- read_excel("../data/raw_data/01 - gen_paper_sessions_FINAL(oct5)_DG_including_moves v2.xlsx")
+
+# how many unique organised sessions? 
+n_org_sessions <- length(unique(org_sessions$`Session Id`))
+
+# how many unique general sessions? 
+n_gen_sessions <- length(unique(gen_sessions$SESSION))
+
+# total number of sessions
+total_number_of_sessions <-  n_org_sessions + n_gen_sessions
+```
+
+For sheduling into rooms, we don't include the posters, because they go in the ballroom. How many 4h slots do we have? I looked on the grid on 'Rooom&Time_DG.xlsx' and counted up the 4h slots, excluding poster sessions, because they are less than 4 h
+
+
+```{r}
+library(tidyverse)
+four_h_slots <- 
+  tribble(~time,       ~Th, ~Fr, ~Sa, ~Su,
+          "morning",    36,  31,  30,  28,
+          "afternoon",  35,  32,  30,  0,
+          "evening",    36,  0,    0,  0)
+
+four_h_slots_long <- 
+  four_h_slots %>% 
+  gather(times, slot, -time)
+
+# how many 4 h slots
+n_four_h_slots <-  sum(four_h_slots_long$slot)
+```
+
+So that's `r n_four_h_slots` 4 hour slots, where we consider each slot a knapsack. 
+
+Now we need to pack the sessions into these slots. First we need to set the upper bounds for the session durations, according to the SAA rules, and then compute how much time each session is likely to take give the number of papers/speakers
+
+```{r}
+# combine organised and general sessions
+org_sessions$`Session Id` <- as.character(org_sessions$`Session Id`)
+gen_sessions$`Session Id` <- gen_sessions$SESSION
+gen_sessions$`Session Type` <- "Symposium"
+
+gen_sessions_to_join <- 
+gen_sessions %>% 
+  select(names(gen_sessions)[names(gen_sessions) %in% names(org_sessions)])
+
+all_nonposter_sessions <- 
+  bind_rows(gen_sessions_to_join, org_sessions)
+
+# how many papers per session
+papers_per_session <- 
+all_nonposter_sessions %>% 
+  group_by(`Session Id`) %>% 
+  tally(sort = TRUE)
+
+ggplot(papers_per_session,
+       aes(n)) +
+  geom_histogram() +
+  ylab("Papers per non-poster session") +
+  theme_bw()
+
+# what's the duration of each session, and he max allowed duration? 
+session_types <- unique(all_nonposter_sessions$`Session Type`)
+
+# this comes from 'Conflicts.docx'
+session_time_limits <- 
+  tribble(~`Session Type`,             ~max_time,
+          "Poster Symposium",           2,
+          "Symposium",                  4,
+          "Electronic Symposium",       2, 
+          "Forum" ,                     2, 
+          "Lightning Rounds",           2)
+
+# join time limits onto session data
+session_with_limits <- 
+  all_nonposter_sessions %>% 
+  filter(`Session Type` != "Poster Symposium") %>% 
+  left_join(session_time_limits)
+
+# now let's see which session exceed the time limits
+session_with_limits <- 
+session_with_limits %>% 
+  group_by(`Session Id`, `Session Type`, max_time ) %>% 
+  tally(sort = TRUE) %>% 
+  mutate(paper_time = n * 15/60) %>% 
+  mutate(paper_time = if_else(paper_time > max_time,  max_time, paper_time))
+
+```
+
+Now we have a known number of 4 hour sessions (knapsacks), and a known number of sessions of various lengths. We turn to http://www.sumsar.net/blog/2016/06/how-to-cut-your-planks-with-r/ to see how to arrange them most efficiently. Here is the original knapsack example that we'll try to adapt:
+
+```{r}
+# Here is Rasmus' example: http://www.sumsar.net/blog/2016/06/how-to-cut-your-planks-with-r/
+
+planks_we_have <- c(120, 137, 220, 420, 480)
+planks_we_want <- c(19, 19, 19, 19, 79, 79, 79, 103, 103,
+                    103, 135, 135, 135, 135, 160)
+
+library(adagio)
+# mknapsack calling signature is: mknapsack(values, weights, capacities)
+solution <- mknapsack(planks_we_want, planks_we_want + 1, planks_we_have)
+# Above I added +1 cm  to each length to compensate for the loss when sawing.
+solution$ksack
+
+# That is, cut plank length 1 from plank 1, plank length 2 from plank 4, etc.
+
+# Now pretty printing what to cut so that we don't make mistakes...
+assignment <- data.frame(
+  cut_this = planks_we_have[solution$ksack],
+  into_this = planks_we_want)
+t(assignment[order(assignment[,1]), ])
+```
+
+Now let's substitute with our data:
+
+```{r}
+# Convert the durations to minutes so we get integers, mknapsack doesn't work with decimals
+
+# into these
+sessions_we_have <- rep(4, n_four_h_slots) * 60 # so many 4 hour slots that we need to fill 
+# we want to fit these
+sessions_we_want <- session_with_limits$paper_time * 60 # the duration of each session
+
+library(adagio)
+# mknapsack calling signature is: mknapsack(values, weights, capacities)
+solution <- mknapsack(sessions_we_want, sessions_we_want, sessions_we_have)
+
+solution$ksack
+# That is, put session 1 into slot 1, session 2 into slot 2, etc.
+
+# Now pretty printing what to session to put in what slot so that we don't make mistakes...
+assignment <- data.frame(
+  fill_this_slot = sessions_we_have[solution$ksack],
+  with_this_session = sessions_we_want)
+t(assignment[order(assignment[,1]), ])
+
+# put the computed slot back onto the full details of the sessions
+session_with_limits$computed_slot <- solution$ksack
+```
+
+That seems to work great, assuming that we've got the time limits ok. Now we arbitrarily assign them to the schedule, then check for conflicts
+
+```{r}
+four_h_slots_long$cumsum <- cumsum(four_h_slots_long$slot)
+
+xx <- 
+four_h_slots_long %>% 
+  mutate(day_part = paste0(times, "-", time)) %>% 
+  select(-time, -times) %>% 
+  rename(end = cumsum) %>% 
+  filter( slot != 0)
+
+# get the number of the start slot to go with the number of the end slot
+for(i in 1:(nrow(xx))) {
+  
+  xx$start[i] <- 
+    if_else(i == 1, 
+           1,
+            as.numeric(xx[ i-1, 2]) + 1)
+
+}
+
+intervals <- 
+xx %>% 
+  select(-slot) %>% 
+  select(day_part, start, end ) 
+
+elements <- session_with_limits$computed_slot
+
+library(fuzzyjoin)
+join_intervals_and_elements <- 
+fuzzy_left_join(data.frame(elements), 
+                intervals, 
+                by = c("elements" = "start", 
+                       "elements" = "end"), 
+                match_fun = list(`>=`, `<=`)) %>% 
+  distinct()
+
+# Which slot goes into which part of what day
+slot_day_part <- 
+join_intervals_and_elements %>% 
+  arrange(elements, day_part)
+
+# now we put the sessions on also
+session_slot_day_part <- 
+  session_with_limits %>% 
+  left_join(slot_day_part, by  = c("computed_slot" = "elements"))
+  
+
+```
+
+## Working in a local Docker container
+
+
+To run this project in a local Docker container, I start a bash shell in the project directory:
+
+
+Do this one time only, build my Docker container from Dockerfile at top-level in my project:
+
+```
+docker build - < Dockerfile
+docker ps
+```
+
+Take note of the container ID, which you get after `docker ps`
+
+Then run my Docker container, access it via the web browser, link the project dir to the Docker drive. Make sure you're in a local directory that is sharable (C:\Users\yourname is usually good):
+
+```
+docker run -dp 8787:8787 -v ${pwd}:/home/rstudio/ -e ROOT=TRUE  <container ID>
+```
+
+Then go to `http://192.168.99.100:8787/` or `localhost:8787` in youor browser, log in (rstudio/rstudio), and start your RStudio project by double-clickin on the .Rproj file
+
+When you're done, in the shell, stop all docker containers with:
+
+```
+docker stop $(docker ps -a -q)
+```
+
+Or do `docker ps` and `docker stop <container ID>` just to stop one container. 
+
+### Colophon
+
+This report was generated on `r Sys.time()` using the following computational environment and dependencies: 
+
+```{r colophon, cache = FALSE}
+# which R packages and versions?
+devtools::session_info()
+```
+
+The current Git commit details are:
+
+```{r}
+# what commit is this file at? You may need to change the path value
+# if your Rmd is not in analysis/paper/
+git2r::repository("../..")
+```
+

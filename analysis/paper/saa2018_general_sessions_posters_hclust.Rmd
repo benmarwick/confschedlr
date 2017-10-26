@@ -1,0 +1,323 @@
+---
+title: "Title Goes Here"
+author:
+  - author 1
+  - author 2
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+    bookdown::html_document2:
+    fig_caption: yes
+    reference_docx: templates/template.docx
+bibliography: references.bib
+csl: journal-of-archaeological-science.csl
+abstract: |
+  Text of abstract
+keywords: |
+  keyword 1; keyword 2; keyword 3
+highlights: |
+  These are the highlights. 
+---
+
+
+<!-- This is the format for text comments that will be ignored during renderings. Do not put R code in these comments because it will not be ignored. -->
+
+```{r, setup, echo = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  echo = FALSE,
+  comment = "#>",
+  fig.path = "figures"
+)
+
+library(saaabstracts)
+library(tm)
+library(topicmodels)
+library(readxl)
+library(Rmpfr)
+library(tidyverse)
+```
+
+# Introduction
+
+```{r eval=TRUE}
+# read in the abstracts
+general_2018 <- read_excel("../data/raw_data/General Abstracts_2018.xlsx")
+
+general_2018_posters <- general_2018 %>% filter(grepl("Poster", `Presentation Format`))
+general_2018_papers  <- general_2018 %>% filter(grepl("Paper", `Presentation Format`))
+
+# clean geo
+clean_geo <- function(x){
+  tmp <- stringr::str_trim(tolower(gsub("[[:punct:]]|\r\n| and ", " ", x)))
+  tmp <- gsub("other", "", tmp)
+  tmp <- gsub(" ", "_", tmp)
+  tmp <- gsub("_{2}", "_", tmp)
+  tmp
+}
+
+general_2018_posters$geo <- 
+  unlist(purrr::map(general_2018_posters$`Geographic Focus`, ~clean_geo(.x)))
+
+general_2018_posters$kw1 <- 
+  unlist(purrr::map(general_2018_posters$Keyword1, ~clean_geo(.x)))
+
+general_2018_posters$kw2 <- 
+  unlist(purrr::map(general_2018_posters$Keyword2, ~clean_geo(.x)))
+
+general_2018_posters$kw3 <- 
+  unlist(purrr::map(general_2018_posters$Keyword3, ~clean_geo(.x)))
+
+general_2018_posters$text_to_model <- 
+  with(general_2018_posters, paste(geo, kw1, kw2, kw3))
+```
+
+
+```{r}
+# clean text to model
+general_2018_posters$text_to_model  <- 
+  stringr::str_trim(tolower(gsub("\\/|:|&", " ", general_2018_posters$text_to_model)))
+
+general_2018_posters$text_to_model  <- 
+  gsub(" and | archaeology | analysis |\r\n", " ", general_2018_posters$text_to_model)
+
+```
+
+```{r}
+# Create a corpus object from the text to mode
+
+general_2018_posters_corpus <- tm::Corpus(tm::VectorSource(general_2018_posters$text_to_model ))
+
+ndocs <- length(general_2018_posters_corpus)
+# ignore extremely rare words i.e. terms that appear in less then 1% of the documents
+minTermFreq <- ndocs * 0.01
+# ignore overly common words i.e. terms that appear in more than 50% of the documents
+maxTermFreq <- ndocs * 0.5
+
+# create a document term matrix
+general_2018_posters_tm <- tm::DocumentTermMatrix(general_2018_posters_corpus, 
+                                     control = list(stemming = TRUE, 
+                                                    stopwords = TRUE,
+                                                    wordLengths=c(4,30),  
+                                                    removeNumbers = TRUE, 
+                                                    bounds = list(global = c(minTermFreq, maxTermFreq)),
+                                                    removePunctuation = TRUE))
+```
+
+
+Distance matrix
+
+```{r}
+m  <- as.matrix(general_2018_posters_tm)
+distMatrix <- dist(m, method="euclidean")
+```
+
+How many clusters?
+
+```{r}
+library(apcluster)
+d.apclus <- apcluster(negDistMat(r=2), m)
+k <- length(d.apclus@clusters)
+
+windows()
+heatmap(d.apclus)
+```
+
+Cluster analysis and dendrogram
+
+```{r}
+groups <- hclust(distMatrix,method="ward.D")
+plot(groups, cex=0.9, hang=-1)
+rect.hclust(groups, k)
+
+# see what cluster each abstract is in:
+cuts <- cutree(groups, k)
+```
+
+
+```{r}
+library(dynamicTreeCut)
+maxCoreScatter <- 0.99
+minGap <- (1 - maxCoreScatter) * 0.01
+dynamicCut <- cutreeDynamic(groups, 
+                           minClusterSize=4, 
+                           method="hybrid", 
+                           distM=as.matrix(dist(m, method="euclidean")), 
+                           deepSplit=4, 
+                           maxCoreScatter=maxCoreScatter, 
+                           maxAbsCoreScatter=NULL, 
+                           minAbsGap=NULL)
+
+hist(table(dynamicCut))
+
+xfreqs_per_cluster <- 
+dynamicCut %>%
+  data_frame(dynamicCut = .,
+             freq = names(.)) %>% 
+  group_by(dynamicCut) %>% 
+  tally(sort=TRUE)
+
+hist(xfreqs_per_cluster$n)
+
+library(dendextend)
+hc <- groups
+dend <- as.dendrogram(hc)
+heights_per_k.dendrogram(dend)
+
+unnest <- function(x) { # from Vlo's answer
+  if(is.null(names(x))) x
+  else c(list(all=unname(unlist(x))), do.call(c, lapply(x, unnest)))
+}
+
+hc <- groups
+cuts2 <- hc$height + 1e-9
+# my experiment
+for(i in seq_along(cuts2)){
+  n <- attr(cut(as.dendrogram(groups), h=3)$lower[[i]], "members")
+  print(n)
+}
+
+my_list <- cut(as.dendrogram(groups), h=3)
+map(my_list, unnest(.x)$lower)
+
+
+map(cut(as.dendrogram(groups), h=3), ~attr(.x$lower, "members"))
+
+xcuts <- cutree(groups, k)
+
+
+
+xfreqs_per_cluster <- 
+xcuts %>%
+  data_frame(cuts = .,
+             freq = names(.)) %>% 
+  group_by(cuts) %>% 
+  tally(sort=TRUE) 
+
+xmax <- max(xfreqs_per_cluster$n)
+xmin <- min(xfreqs_per_cluster$n)
+
+max_size <- 16
+min_size <- 4
+n <- 0
+
+while(xmax <= max_size &  xmin >= min_size & n <= length(xcuts)){
+  n <-  n + 1
+  ycuts <- cutree(groups, n)
+
+
+xfreqs_per_cluster <- 
+xcuts %>%
+  data_frame(cuts = .,
+             freq = names(.)) %>% 
+  group_by(cuts) %>% 
+  tally(sort=TRUE) 
+
+xmax <- max(xfreqs_per_cluster$n)
+xmin <- min(xfreqs_per_cluster$n)
+
+  xcuts <- cutree(groups, n)
+  
+}
+
+
+
+
+```
+
+```{r}
+
+
+hc <- groups
+
+hc$size
+
+unnest <- function(x) { # from Vlo's answer
+  if(is.null(names(x))) x
+  else c(list(all=unname(unlist(x))), do.call(c, lapply(x, unnest)))
+}
+
+cuts2 <- hc$height + 1e-9
+
+biggest <- 50
+smallest <- 0
+
+max_size <- 16
+min_size <- 4
+
+i <- 0
+
+while(smallest < min_size & 
+      biggest > max_size &
+      i <= length(cuts2)){
+  h_i <- cuts2[i <- i+1]
+  if(i > length(cuts2)){
+    warning("Couldn't find a cluster big enough.")
+  }
+  else  smallest <- 
+           Reduce(min, 
+                  lapply(X = unnest(cut(as.dendrogram(hc), h=h_i)$lower), 
+                         FUN = attr, which = "members") ) # from lukeA's comment
+  
+  biggest <- 
+           Reduce(max, 
+                  lapply(X = unnest(cut(as.dendrogram(hc), h=h_i)$upper), 
+                         FUN = attr, which = "members") ) # from lukeA's comment
+  
+  print(paste0("biggest: ", biggest, ", smallest: ", smallest, " i: ", i, " h_i: ", h_i))
+}
+h_i
+
+cut(as.dendrogram(hc), h=h_i)
+```
+
+
+
+
+How many items in each cluster
+
+```{r}
+# histogram
+freqs_per_cluster <- 
+cuts %>%
+  data_frame(cuts = .,
+             freq = names(.)) %>% 
+  group_by(cuts) %>% 
+  tally(sort=TRUE) 
+
+hist(freqs_per_cluster$n)
+
+median(freqs_per_cluster$n) # 10
+```
+
+
+```{r}
+# put topics back onto abstract spreadsheet
+# abstract_ids <- dimnames(general_2018_reduced_dtm)$Docs
+# general_2018$`Abstract Id`
+
+general_2018_posters_with_topics <- 
+  bind_cols(general_2018_posters, data_frame(cuts))
+ 
+
+write.csv(general_2018_posters_with_topics, "../data/derived_data/general_2018_posters_with_clusters.csv")
+```
+
+### Colophon
+
+This report was generated on `r Sys.time()` using the following computational environment and dependencies: 
+
+```{r colophon, cache = FALSE}
+# which R packages and versions?
+devtools::session_info()
+```
+
+The current Git commit details are:
+
+```{r}
+# what commit is this file at? You may need to change the path value
+# if your Rmd is not in analysis/paper/
+git2r::repository("../..")
+```
+

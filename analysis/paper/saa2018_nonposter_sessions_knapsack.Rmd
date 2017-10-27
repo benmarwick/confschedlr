@@ -1,27 +1,18 @@
 ---
-title: "Title Goes Here"
+title: "Notes on scheduling the SAA2019 meeting"
 author:
-  - author 1
-  - author 2
+  - Ben Marwick
 date: "`r format(Sys.time(), '%d %B, %Y')`"
-output: 
-    bookdown::html_document2:
-    fig_caption: yes
-    reference_docx: templates/template.docx
-bibliography: references.bib
-csl: journal-of-archaeological-science.csl
-abstract: |
-  Text of abstract
-keywords: |
-  keyword 1; keyword 2; keyword 3
-highlights: |
-  These are the highlights. 
+output:
+  tint::tintHtml: 
+     self_contained: TRUE
+     df_print: paged
 ---
 
 
 <!-- This is the format for text comments that will be ignored during renderings. Do not put R code in these comments because it will not be ignored. -->
 
-```{r, setup, echo = FALSE}
+```{r, setup, echo = FALSE, warning = FALSE, message = FALSE,}
 knitr::opts_chunk$set(
   collapse = TRUE,
   warning = FALSE,
@@ -32,18 +23,35 @@ knitr::opts_chunk$set(
 )
 
 library(saaabstracts)
-library(tm)
-library(topicmodels)
 library(readxl)
-library(Rmpfr)
-library(ggplot2)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+options(knitr.table.format = "html") 
+
+my_kable <- function(dt){
+kable(dt) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE,
+                position = "left") %>% 
+    column_spec(seq(1, ncol(dt), 2),  background = "grey80")
+}
 ```
+## Introduction
 
-# Introduction
+In these notes I attempt to make a start on organising the conference sessions into time slots suitable for scheduling. 
 
-## Knapsack
+We have the individual submissions already organised into sessions. The task here is to identify the slots available and fit the sessions into them. Here's what I've done:
 
-We have how many sessions?
+First, we computed a suitable duration for each session, given the number of participants and the SAA policy about the maximum duration of the various session types.
+
+Second, we assigned all non-poster sessions to the available four hour time slots. We tallied up the number of slots by looking at the 'Room & Time' spreadsheet.
+
+Third, we spread the slots across the parts of each day of the meeting (morning, afternoon, evening), since each day has slightly different room resources available.
+
+Fourth, we identified problems and schedule clashes, and what to do next.
+
+## How many sessions do we have?
 
 ```{r}
 library(readxl)
@@ -51,38 +59,79 @@ org_sessions <- read_excel("../data/raw_data/Organized Session Abstracts_2018_AB
 
 gen_sessions <- read_excel("../data/raw_data/01 - gen_paper_sessions_FINAL(oct5)_DG_including_moves v2.xlsx")
 
+poster_sessions <- 
+  org_sessions %>% 
+  filter(`Session Type` == "Poster Symposium")
+
+# organised sessions without posters
+org_sessions <- 
+   org_sessions %>% 
+  filter(`Session Type` != "Poster Symposium")
+  
 # how many unique organised sessions? 
 n_org_sessions <- length(unique(org_sessions$`Session Id`))
 
 # how many unique general sessions? 
 n_gen_sessions <- length(unique(gen_sessions$SESSION))
 
+# how many unique poster sessions? 
+n_pos_sessions <- length(unique(poster_sessions$`Session Id`))
+
 # total number of sessions
-total_number_of_sessions <-  n_org_sessions + n_gen_sessions
+total_number_of_sessions <-  n_org_sessions + n_gen_sessions + n_pos_sessions
 ```
 
-For sheduling into rooms, we don't include the posters, because they go in the ballroom. How many 4h slots do we have? I looked on the grid on 'Rooom&Time_DG.xlsx' and counted up the 4h slots, excluding poster sessions, because they are less than 4 h
+We have this many sessions in each major category:
 
+```{r}
+# table
+tribble(       ~'Session type',             ~number,
+                      'Organised sessions',        n_org_sessions,
+                      'Poster sessions',           n_pos_sessions,
+                      'General sessions',          n_gen_sessions)
+```
+
+With a total of `r total_number_of_sessions` sessions altogether, and a total number of non-poster sessions `r total_number_of_sessions - n_pos_sessions`. 
+
+For scheduling into rooms and time slots, we wont include the posters, because they go in their own schedule in the ballroom. 
+
+## How many 4 hour slots do we have available?
+
+To find out how many 4 h slots we have available, I looked on the grid on 'Rooom&Time_DG.xlsx' and counted up the 4  slots. I did not count poster sessions here, because they are less than 4 h and they are outside of the room schedule. I rounded down a little:
+
+- Thur afternoon has the ethics bowl from 1-3 pm, so I removed one whole 4 h slot from that part   
+- Fri morning has some time reserved from 9am-12 pm with the note "Reserved for Business Meeting after 12:00pm", so removed one whole 4 h slot from that part also 
+
+Here's what I got for session slots in each day and part of day:
 
 ```{r}
 library(tidyverse)
 four_h_slots <- 
-  tribble(~time,       ~Th, ~Fr, ~Sa, ~Su,
+  tribble(~part,       ~Th, ~Fr, ~Sa, ~Su,
           "morning",    36,  31,  30,  28,
           "afternoon",  35,  32,  30,  0,
           "evening",    36,  0,    0,  0)
 
+(four_h_slots)
+```
+
+
+```{r}
 four_h_slots_long <- 
   four_h_slots %>% 
-  gather(times, slot, -time)
+  gather(times, slot, -part)
 
 # how many 4 h slots
 n_four_h_slots <-  sum(four_h_slots_long$slot)
 ```
 
-So that's `r n_four_h_slots` 4 hour slots, where we consider each slot a knapsack. 
+So that's a total of `r n_four_h_slots` 4 hour slots, in which we have to fit all the organised and general sessions. This does not include the posters.
 
-Now we need to pack the sessions into these slots. First we need to set the upper bounds for the session durations, according to the SAA rules, and then compute how much time each session is likely to take give the number of papers/speakers
+## What are the durations of the sessions? 
+
+We need to set the upper bounds for the session durations, according to the SAA rules, and then compute how much time each session is likely to take give the number of papers/speakers, if that is less than the allowed time.
+
+The plot below shows the distribution of papers across all non-poster session:
 
 ```{r}
 # combine organised and general sessions
@@ -90,6 +139,7 @@ org_sessions$`Session Id` <- as.character(org_sessions$`Session Id`)
 gen_sessions$`Session Id` <- gen_sessions$SESSION
 gen_sessions$`Session Type` <- "Symposium"
 
+# get only columns that are also in the organised sessions data frame
 gen_sessions_to_join <- 
 gen_sessions %>% 
   select(names(gen_sessions)[names(gen_sessions) %in% names(org_sessions)])
@@ -97,7 +147,7 @@ gen_sessions %>%
 all_nonposter_sessions <- 
   bind_rows(gen_sessions_to_join, org_sessions)
 
-# how many papers per session
+# how many papers per session?
 papers_per_session <- 
 all_nonposter_sessions %>% 
   group_by(`Session Id`) %>% 
@@ -106,62 +156,102 @@ all_nonposter_sessions %>%
 ggplot(papers_per_session,
        aes(n)) +
   geom_histogram() +
-  ylab("Papers per non-poster session") +
+  ylab("Papers per \nnon-poster session") +
   theme_bw()
+```
+
+Note that I treat chairs and discussants the same as presenters, even though only presenters are really supposed to be allocated program time. The reason for keeping them in is to keep the names so we can avoid schedule clashes where one person is scheduled to be in two rooms at once. 
+
+Here are the SAA rules for the duration of each session type:
+
+```{r}
 
 # what's the duration of each session, and he max allowed duration? 
 session_types <- unique(all_nonposter_sessions$`Session Type`)
 
 # this comes from 'Conflicts.docx'
 session_time_limits <- 
-  tribble(~`Session Type`,             ~max_time,
+  tribble(~`Session Type`,             ~saa_allowed_time,
           "Poster Symposium",           2,
           "Symposium",                  4,
           "Electronic Symposium",       2, 
           "Forum" ,                     2, 
           "Lightning Rounds",           2)
 
+(session_time_limits)
+```
+
+Here we take the SAA rules for the duration of each session type, and if a session has more than 16 papers, we simply assign the duration of that session the maximum allowed time according to the SAA rules. We also compute the 'anticipated duration' of each session by taking the number of papers and mulitplying by 15 minutes. This is most relevant for the 'symposium' types, because other session types don't always have paper presentations. But we apply the upper duration to all sessions for now to ensure they all follow the SAA rules about duration. 
+
+```{r}
 # join time limits onto session data
-session_with_limits <- 
+session_with_limits_int <- 
   all_nonposter_sessions %>% 
   filter(`Session Type` != "Poster Symposium") %>% 
   left_join(session_time_limits)
 
 # now let's see which session exceed the time limits
+min_duration <-  1.5 
+round_up_by <- 0.25
 session_with_limits <- 
-session_with_limits %>% 
-  group_by(`Session Id`, `Session Type`, max_time ) %>% 
+session_with_limits_int %>% 
+  group_by(`Session Id`, 
+           `Session Type`, 
+           saa_allowed_time ) %>% 
   tally(sort = TRUE) %>% 
-  mutate(paper_time = n * 15/60) %>% 
-  mutate(paper_time = if_else(paper_time > max_time,  max_time, paper_time))
+  mutate(session_time_ideal = n * 15/60) %>% 
+  # round up to nearest 0.5 hour
+  mutate(session_time_allowed = ceiling(session_time_ideal / round_up_by) * round_up_by) %>% 
+  # set the SAA-allowed time as the max time
+  mutate(session_time_allowed = if_else(session_time_allowed >= saa_allowed_time,
+                                  saa_allowed_time, 
+                                  session_time_allowed)) %>% 
+  # set a min duration of 2 h
+    mutate(session_time_allowed = if_else(session_time_allowed <= min_duration,
+                                  min_duration, 
+                                  session_time_allowed)) 
+```
+
+The plot below shows how a bunch of sessions have had their durations change according the following rules:
+
+- round up each session duration to the nearest `r round_up_by` hour, for convienence, since it's awkward to have sessions starting and ending at odd times    
+- shorten sessions to fit into the SAA rules of 2 and 4 h, depending on the session type    
+- for very small sessions, set a minumum duration of `r min_duration`, because that's what most session organisers wil be expecting    
+
+```{r fig.fullwidth = TRUE, fig.width = 10}
+
+# plot the effect of setting the SAA limits
+session_with_limits %>% 
+  ungroup() %>% 
+  select(`Session Id`, 
+         `Session Type`,
+         session_time_ideal, 
+         session_time_allowed) %>% 
+  gather(time_type, time,  
+         -`Session Id`, 
+         -`Session Type`) %>% 
+ggplot(aes(time)) +
+  geom_histogram() +
+  geom_vline(xintercept = c(2,4), 
+             colour = "red") +
+  facet_wrap(~   time_type + `Session Type`, ncol = 4) +
+  theme_bw() +
+  xlab("Duration in hours") +
+  ylab("Number of non-poster sessions") + 
+  ggtitle("Distribution of durations of non-poster sessions",
+          subtitle = paste0("The 'ideal' session times are computed by 15 min x N participants in the session. The 'allowed' times are mandated by the SAA, \nwith ideal times rounded up to the nearest ", round_up_by, " h, and a minimum duration of ", min_duration, "  h "))
 
 ```
 
-Now we have a known number of 4 hour sessions (knapsacks), and a known number of sessions of various lengths. We turn to http://www.sumsar.net/blog/2016/06/how-to-cut-your-planks-with-r/ to see how to arrange them most efficiently. Here is the original knapsack example that we'll try to adapt:
+QUESTION! If there are a very small number of paricipants in a session, do we allocate the SAA-imposed limit to that session? Or do we allow smaller sessions to have shorter durations, for example schedule 1 hour for 4 people? That seems unfair, so I've set a minimum duration of `r min_duration` h for all sessions, since that's what most session chairs will be expecting. I've also rounded up the durations to the nearest `r round_up_by` min
 
-```{r}
-# Here is Rasmus' example: http://www.sumsar.net/blog/2016/06/how-to-cut-your-planks-with-r/
+## How to distribute the sessions in the 4 hour slots?
 
-planks_we_have <- c(120, 137, 220, 420, 480)
-planks_we_want <- c(19, 19, 19, 19, 79, 79, 79, 103, 103,
-                    103, 135, 135, 135, 135, 160)
+Now we have computed durations for all the sessions, we can try to find the optimum way to squeeze them into the slots available. 
 
-library(adagio)
-# mknapsack calling signature is: mknapsack(values, weights, capacities)
-solution <- mknapsack(planks_we_want, planks_we_want + 1, planks_we_have)
-# Above I added +1 cm  to each length to compensate for the loss when sawing.
-solution$ksack
+This question is combinatorial optimization question, more specifically, it is type of multiple knapsack problem. Given a set of resources (i.e. sessions of various lengths), how do we allocate them to a give number of time slots (all the same size, four hours)? Once we solve that problem, then we will distribute these slots across the day-parts.
 
-# That is, cut plank length 1 from plank 1, plank length 2 from plank 4, etc.
-
-# Now pretty printing what to cut so that we don't make mistakes...
-assignment <- data.frame(
-  cut_this = planks_we_have[solution$ksack],
-  into_this = planks_we_want)
-t(assignment[order(assignment[,1]), ])
-```
-
-Now let's substitute with our data:
+To get started on this, we can use Rasmus Bååth's nice case study of the the multiple knapsack problem (<http://www.sumsar.net/blog/2016/06/how-to-cut-your-planks-with-r/>). 
 
 ```{r}
 # Convert the durations to minutes so we get integers, mknapsack doesn't work with decimals
@@ -169,75 +259,450 @@ Now let's substitute with our data:
 # into these
 sessions_we_have <- rep(4, n_four_h_slots) * 60 # so many 4 hour slots that we need to fill 
 # we want to fit these
-sessions_we_want <- session_with_limits$paper_time * 60 # the duration of each session
+sessions_we_want <- session_with_limits$session_time_allowed * 60 # the duration of each session
+
+# add a buffer onto the sessions less than the full slot
+buffer <- 15
+sessions_we_want <- ifelse(sessions_we_want <= max(sessions_we_want) - buffer, 
+                           sessions_we_want + buffer,
+                           sessions_we_want)
 
 library(adagio)
 # mknapsack calling signature is: mknapsack(values, weights, capacities)
 solution <- mknapsack(sessions_we_want, sessions_we_want, sessions_we_have)
-
-solution$ksack
-# That is, put session 1 into slot 1, session 2 into slot 2, etc.
-
-# Now pretty printing what to session to put in what slot so that we don't make mistakes...
-assignment <- data.frame(
-  fill_this_slot = sessions_we_have[solution$ksack],
-  with_this_session = sessions_we_want)
-t(assignment[order(assignment[,1]), ])
-
-# put the computed slot back onto the full details of the sessions
-session_with_limits$computed_slot <- solution$ksack
 ```
 
-That seems to work great, assuming that we've got the time limits ok. Now we arbitrarily assign them to the schedule, then check for conflicts
+Let's put the result back onto the data frame of all the non-poster sessions so we can see which sessions can go in the same slot. 
+
+In the snippet below we see that our multiple knapsack function has allocated two sessions into one computed_slot. This looks good because Electronic Symposia and Lightning Rounds can only be 2 hours duration, so we should be able to fit two into one slot. So the multiple knapsack approach seems to be working. 
+
+```{r}
+# put the computed slot back onto the full details of the sessions
+session_with_limits$computed_slot <- solution$ksack
+
+session_with_limits %>% 
+  arrange(session_time_allowed, computed_slot) %>% 
+  head 
+```
+
+Now that we have assigned sessions to slots, we need to join this slot information onto the data frame of each individual paper. This is necessary so we can ensure that we don't put one person in two places at once when we distribute the slots across the day-parts on the schedule. 
+
+```{r}
+all_nonposter_sessions_with_slots <- 
+all_nonposter_sessions %>% 
+  left_join(session_with_limits)
+```
+
+# How to avoid putting one person in two places at once?
+
+We make a unique ID out of the first name and last name to track individuals.
+
+```{r}
+all_nonposter_sessions_with_slots$uid <- 
+  with(all_nonposter_sessions_with_slots, paste0(`First Name`, 
+                                                 "_", 
+                                                 `Last Name`))
+```
+
+We assign slots to day-parts, then we join this day-part data back to the data frame of individual papers. 
+
+The table below shows a snippet of how the slots available are distributed across the day-parts: 
 
 ```{r}
 four_h_slots_long$cumsum <- cumsum(four_h_slots_long$slot)
 
 xx <- 
 four_h_slots_long %>% 
-  mutate(day_part = paste0(times, "-", time)) %>% 
-  select(-time, -times) %>% 
+  mutate(day_part = paste0(times, "-", part)) %>% 
+  select(-part, -times) %>% 
   rename(end = cumsum) %>% 
-  filter( slot != 0)
+  filter(slot != 0)
 
 # get the number of the start slot to go with the number of the end slot
 for(i in 1:(nrow(xx))) {
-  
   xx$start[i] <- 
     if_else(i == 1, 
            1,
             as.numeric(xx[ i-1, 2]) + 1)
-
 }
 
 intervals <- 
 xx %>% 
   select(-slot) %>% 
-  select(day_part, start, end ) 
+  select(day_part, start, end ) %>% 
+  rename(from_slot = start,
+         to_slot = end)
 
-elements <- session_with_limits$computed_slot
+(head(intervals))
+```
+
+Now we take the computed slot values for each session that we got from the multiple knapsack function and put the sessions into day-parts. This table shows a snippet of the computed slots assigned to day-parts:
+
+```{r}
+elements <- unique(session_with_limits$computed_slot)
 
 library(fuzzyjoin)
 join_intervals_and_elements <- 
 fuzzy_left_join(data.frame(elements), 
                 intervals, 
-                by = c("elements" = "start", 
-                       "elements" = "end"), 
+                by = c("elements" = "from_slot", 
+                       "elements" = "to_slot"), 
                 match_fun = list(`>=`, `<=`)) %>% 
   distinct()
 
-# Which slot goes into which part of what day
-slot_day_part <- 
+computed_slots_in_day_parts <- 
 join_intervals_and_elements %>% 
-  arrange(elements, day_part)
+  arrange(elements, day_part) %>% 
+  rename(computed_slot = elements)
 
-# now we put the sessions on also
-session_slot_day_part <- 
-  session_with_limits %>% 
-  left_join(slot_day_part, by  = c("computed_slot" = "elements"))
-  
+(head(computed_slots_in_day_parts))
+```
+
+Now we join the day-parts onto the individual sessions and then the individual abstracts by the computed slot values. 
+
+And now we can plot one possible configuration of the sessions as a grid of sessions for each block of time on the schedule: 
+
+```{r fig.fullwidth = TRUE, fig.width = 10, fig.height = 8}
+# sessions
+all_nonposter_sessions_with_day_parts <- 
+session_with_limits %>% 
+  left_join(computed_slots_in_day_parts) 
+
+# find out what sessions are fractions of 4 hour slots
+zzz <- 
+all_nonposter_sessions_with_day_parts %>% 
+  group_by(computed_slot ) %>% 
+  add_count() %>% 
+  ungroup() %>% 
+  mutate(fraction_of_slot = 1/nn) %>% 
+  arrange(computed_slot) 
+
+zzzz <- 
+zzz %>% 
+  group_by(day_part) %>% 
+  mutate(day_slot =  computed_slot - from_slot + 1) %>% 
+  ungroup()  
+
+# get session label string
+session_label_string <- 
+zzzz %>% 
+  group_by(computed_slot) %>% 
+  summarise(strings = toString(unique(`Session Id`)))
+
+z6 <- 
+  zzzz %>% 
+  left_join(session_label_string)
+
+ggplot(z6, 
+       aes(day_part, 
+           day_slot)) +
+  geom_tile(colour = "black", 
+           aes(fill = factor(session_time_allowed))) +
+  geom_text(aes(label = strings), 
+                  size = 3) +
+  scale_fill_viridis_d() +
+  scale_x_discrete(limits = xx$day_part) +
+  scale_y_continuous(breaks = 0:max(z6$day_slot)) +
+  guides(colour = FALSE) +
+  theme_bw() +
+  xlab("") +
+  ylab("Room-ish") +
+  ggtitle("Visual schedule for SAA2019 conference non-poster sessions",
+          subtitle = "The numbers on the plot are the Session Ids. \n We can think of each row as equivalent to a room at the conference venue. \n The colour of the cell indicates the duration of the individual session(s) that each cell represents.\n For example the purple cells with two session IDs means that each session is 2 h, for a total of 4 hours in that slot.")
+
+# can we output that as a spreadsheet?
+library(tidyr)
+z6_plot_as_spreadsheet <- 
+  z6 %>% 
+  select(day_part, day_slot, strings) %>% 
+  distinct(strings, .keep_all = TRUE) %>% 
+  spread(day_part, strings, fill = "") %>% 
+  select(one_of(xx$day_part))
+
+write_csv(z6_plot_as_spreadsheet,
+          "../data/derived_data/visual_schedule_plot_as_spreadsheet.csv")
+
+# papers
+all_nonposter_papers_with_day_parts <- 
+all_nonposter_sessions_with_slots %>% 
+  left_join(computed_slots_in_day_parts)
 
 ```
+
+Now let's identify problems where one person is in two different sessions in the same day-part (i.e. column in the plot above).
+
+In the data frame of individual papers, we check that the UID does not occur in more than one session ID for one day-part (it can occur twice on one session ID). 
+
+This plot shows sessions where one person is currently scheduled to be in two places at one (the red cells indicate the clashing sessions):
+
+```{r fig.fullwidth = TRUE, fig.width = 10, fig.height = 8}
+# identify people with roles in more than one session, but only in the same day-part
+# we don't care about mulitple roles in one single session
+three_or_more <- 
+all_nonposter_papers_with_day_parts %>% 
+  group_by(day_part, uid) %>% 
+  add_count(sort = TRUE)  %>% 
+  filter(nn >= 3) %>% 
+  ungroup()  %>% 
+  distinct(`Session Id`, uid, .keep_all = TRUE) %>% 
+  group_by(uid) %>% 
+  filter(n()>1)
+
+
+# join clashing sessions with plotting data
+session_with_clash_flags <- 
+  z6 %>% 
+  left_join(three_or_more, c("Session Id", "Session Type", "saa_allowed_time", "session_time_ideal", "session_time_allowed", "computed_slot", "day_part", "from_slot", "to_slot")) %>% 
+  mutate(fill = if_else(is.na(nn.y), "no_clash", "clash"))
+
+# plot again 
+ggplot(session_with_clash_flags, 
+       aes(day_part, 
+           day_slot )) +
+  geom_tile(aes(fill = factor(fill)),
+            colour = "black") +
+  geom_text(aes(label = strings), 
+                  size = 3) +
+  scale_x_discrete(limits = xx$day_part) +
+  scale_y_continuous(breaks = 0:max(z6$day_slot)) +
+  scale_fill_manual(values = c("red", "green")) +
+  guides(fill=FALSE, 
+         colour = FALSE) +
+  theme_bw() +
+  xlab("") +
+  ylab("Room-ish") +
+  ggtitle("Visual schedule for SAA2019 conference non-poster sessions",
+          subtitle = "The numbers on the plot are the Session Ids. \n We can think of  each row as equivalent to a room at the conference venue. \n Red cells indicate that one person is currently scheduled to be in both sessions :(")
+
+
+```
+
+## How can we prevent one person scheduled in two simultaneous sessions?
+
+If we treat each day-part as one knapsack, and then loop over filling the knapsack to check if a name has already been added, and if it has, skip that day-part and move to the next, and check that next pay-part to see if the name is already there.
+
+We can compute the total capacity of each day-part in hours like this:
+
+```{r}
+# each slot is 4 hours long
+total_cap <- 
+  xx %>% 
+  mutate(total_capacity = slot * 4) %>% 
+  select(day_part, slot, total_capacity)
+total_cap
+```
+
+Now we will take session from the big table of sessions and add them into, for example, Th-morning until we reach the capacity of that day-part. But, we also need to loop over the sessions as we add more to the day-part to check to see if a person's name is already there or not. 
+
+```{r echo = TRUE, eval = FALSE}
+
+# get all the sessions, but we're going to modify this, so make a copy
+z7 <- z6
+all_of_the_day_parts <- NULL
+total_cap$hours_of_sessions <- 0
+total_cap$n_sessions <- 0
+total_cap$c_sessions <- 0
+container_for_this_day_part_with_day_from_while <- 0
+i <- 1
+
+# start with each day-part...
+for(i in seq_len(nrow(total_cap))) {
+  target_capacity <- total_cap$total_capacity[i] - 4
+
+  # prepare a while statement that will take a session, 
+  # check to see if there is a name clash with sessions,
+  # skip adding it if there is clash, then check to see
+  # the culumative duration of the sessions in the day-part 
+  # has exceeeded the total duration of the day-part,
+  # and stop adding sessions if it has.
+  
+# make sure some variables are empty
+cumulative_duration_of_sessions   <-  0
+container_for_this_day_part <- 0
+all_the_people_in_the_session <- 0
+j <- 1
+
+while(cumulative_duration_of_sessions <= target_capacity & 
+      j <= nrow(z7)) {
+ 
+    get_a_session <- z7[j, ]
+    
+    # get the names of all the people in this session...
+    all_the_people_in_this_session <- 
+      left_join(get_a_session, 
+                all_nonposter_papers_with_day_parts, 
+                by = "Session Id")
+    
+    # get names from what we already have added to this day-part
+     if (j == 1) {
+      # do nothing is this is the first incoming session 
+       distinct_names_for_each_session_so_far <- 0
+    } else {
+      # get distinct names for each session previously added
+      # to this day-part
+      # (don't care about same name multiple times in one session)
+      distinct_names_for_each_session_so_far <- 
+      container_for_this_day_part %>% 
+        group_by(uid) %>% 
+        distinct(uid, .keep_all = TRUE) %>% 
+        pull(uid)
+    }
+      
+    # compare names already in here to names we are about to add
+    if (j == 1) {
+      # do nothing 
+      names_already_in <- 0
+      } else {
+      # check to see if incoming session has names that already exist in this day_part
+      names_already_in <- sum(all_the_people_in_this_session$uid %in% distinct_names_for_each_session_so_far)
+      }
+    
+    # accumulate the incoming session onto the sessions
+    # we've already added to this day-part, if there are no
+    # name conflicts
+    if (j == 1) {
+       container_for_this_day_part <- 
+        all_the_people_in_this_session
+      } else {
+      if (names_already_in == 0) {
+      # if there are no name clashes, 
+      # add these names to previous names in this day-part
+        
+      # bind rows of session that has no clashing  names with 
+      # sessions we already added to this day-part
+      container_for_this_day_part <- 
+        bind_rows(all_the_people_in_this_session,
+                  container_for_this_day_part)
+    }  else {
+      
+        # do not add this session to the day-part
+      }
+    }
+    
+    # compute the duration of session that we've added so far to 
+    # this day-part
+    cumulative_duration_of_sessions <- 
+      container_for_this_day_part %>% 
+      distinct(`Session Id`, .keep_all = TRUE) %>% 
+      pull(session_time_allowed.x) %>% 
+      sum
+    
+    # store this result
+    total_cap$hours_of_sessions[i] <- cumulative_duration_of_sessions
+    
+    # show a check of what's happening
+    if (j == 1){
+    progress_check <-    
+      data_frame(i = i, 
+                 j = j,
+               'cumulative duration' = cumulative_duration_of_sessions,
+               'sessions added' =  length(unique(container_for_this_day_part$`Session Id`)),
+               people =  nrow(container_for_this_day_part)
+                )
+    } else {
+      progress_check <- bind_rows(progress_check, 
+                                  data_frame(i = i,
+                                             j = j,
+               'cumulative duration' = cumulative_duration_of_sessions,
+               'sessions added' =  length(unique(container_for_this_day_part$`Session Id`)),
+               people =  nrow(container_for_this_day_part)
+                ))
+    }
+    
+       # print(progress_check)
+       
+       # move to next session
+       j <- j + 1
+    } 
+# end of the while loop
+
+ # add an identifier so we can see where we have assigned each session so far
+ container_for_this_day_part_with_day_from_while <- 
+   container_for_this_day_part %>% 
+   mutate(day_part_from_while  = as.character(total_cap$day_part[i]))
+ 
+ # bind rows to previous day-parts we might have done
+  if (i == 1) {
+ 
+  all_of_the_day_parts <- container_for_this_day_part_with_day_from_while
+ 
+  } else {
+    
+    # check to see
+    
+  all_of_the_day_parts <- bind_rows(container_for_this_day_part_with_day_from_while, 
+                                      all_of_the_day_parts)
+  }
+ 
+ # progress check
+ print(paste0("i = ", i))
+ 
+ print(
+ all_of_the_day_parts %>% 
+   group_by(day_part_from_while) %>% 
+   summarise(papers = n(),
+             sessions = length(unique(`Session Id`)))
+ )
+ 
+ total_cap$n_sessions[i] <- length(unique(container_for_this_day_part_with_day_from_while$`Session Id`))
+ 
+ total_cap$c_sessions[i] <-  sum(total_cap$n_sessions)
+
+print(total_cap)
+
+ # for the next day-part, we need to make sure
+ # we don't add the same session twice to different day-parts
+ # so let's update our big table of abstracts, and drop the session that 
+ # we've already got in the day-part
+
+ z7 <-  
+   z7 %>% 
+   filter(! `Session Id` %in% unique(container_for_this_day_part$`Session Id`))
+ 
+ if (nrow(z7) == 0) stop("Stopping the loop because all sessions have been assigned to day-parts")
+ 
+}
+```
+
+```{r}
+# check to see what we got from the loop...
+
+n_missing_papers <- 
+  nrow(all_nonposter_sessions_with_slots) - nrow(all_of_the_day_parts)
+
+n_missing_sessions <- 
+  length(unique(all_nonposter_sessions_with_slots$`Session Id`)) - length(unique(all_of_the_day_parts$`Session Id`))  
+
+missing_sessions <- 
+  unique(all_nonposter_sessions_with_slots$`Session Id`)[!(unique(all_nonposter_sessions_with_slots$`Session Id`) %in% unique(all_of_the_day_parts$`Session Id`)) ]
+
+# have we succeeded with no name clashes?
+# in each day-part, do any names occur more than once?
+clash <- 
+all_of_the_day_parts %>% 
+  group_by(`Session Id`, day_part_from_while, uid) %>% 
+  tally() %>% 
+  arrange(`Session Id`, n)
+  
+  
+```
+
+
+
+## Summary
+
+Now we have a rough draft of the schedule of non-poster sessions. We used the multiple knapsack algorithm to distribute the sessions efficiently across the available sessions. This method identifies combinations of sessions that are <4 h and then combines these shorter sessions to fill the 4 h slots. 
+
+We still have some things to do:
+
+- Resolve the clashes that currently have one person in two sessions at the same time. I'm thinking of how it can be done programatically, but nothing obvious has occured to me.     
+- Assign the sessions to specific times and rooms. Perhaps this is best be done manually?    
+- Consider all of the conflicts and special requests in 'Conflicts.docx'    
+- Repeat all of this for the posters. This could be done with some minor variations to the code used here. 
+
+
+
+<!--
 
 ## Working in a local Docker container
 
@@ -269,6 +734,7 @@ docker stop $(docker ps -a -q)
 ```
 
 Or do `docker ps` and `docker stop <container ID>` just to stop one container. 
+-->
 
 ### Colophon
 

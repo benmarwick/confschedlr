@@ -1,0 +1,480 @@
+---
+title: "Notes on scheduling the SAA2019 meeting"
+author:
+  - Ben Marwick
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  tint::tintHtml: 
+     self_contained: TRUE
+     df_print: paged
+---
+
+
+<!-- This is the format for text comments that will be ignored during renderings. Do not put R code in these comments because it will not be ignored. -->
+
+```{r, setup, echo = FALSE, warning = FALSE, message = FALSE,}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  echo = TRUE,
+  comment = "#>",
+  fig.path = "figures"
+)
+
+library(saaabstracts)
+library(readxl)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(glue)
+```
+## Introduction
+
+
+
+## How many sessions do we have?
+
+```{r}
+library(readxl)
+org_sessions <- read_excel("../data/raw_data/Organized Session Abstracts_2018_AB.xlsx")
+
+gen_sessions <- read_excel("../data/raw_data/01 - gen_paper_sessions_FINAL(oct5)_DG_including_moves v2.xlsx")
+
+poster_sessions <- 
+  org_sessions %>% 
+  filter(`Session Type` == "Poster Symposium")
+
+# organised sessions without posters
+org_sessions <- 
+   org_sessions %>% 
+  filter(`Session Type` != "Poster Symposium")
+  
+# how many unique organised sessions? 
+n_org_sessions <- length(unique(org_sessions$`Session Id`))
+
+# how many unique general sessions? 
+n_gen_sessions <- length(unique(gen_sessions$SESSION))
+
+# how many unique poster sessions? 
+n_pos_sessions <- length(unique(poster_sessions$`Session Id`))
+
+# total number of sessions
+total_number_of_sessions <-  n_org_sessions + n_gen_sessions + n_pos_sessions
+
+# combine organised and general sessions
+org_sessions$`Session Id` <- as.character(org_sessions$`Session Id`)
+gen_sessions$`Session Id` <- gen_sessions$SESSION
+gen_sessions$`Session Type` <- "Symposium"
+
+# get only columns that are also in the organised sessions data frame
+gen_sessions_to_join <- 
+gen_sessions %>% 
+  select(names(gen_sessions)[names(gen_sessions) %in% names(org_sessions)])
+
+all_nonposter_sessions <- 
+  bind_rows(gen_sessions_to_join, org_sessions)
+```
+
+We have this many sessions in each major category:
+
+```{r}
+# table
+tribble(       ~'Session type',             ~number,
+                      'Organised sessions',        n_org_sessions,
+                      'Poster sessions',           n_pos_sessions,
+                      'General sessions',          n_gen_sessions)
+```
+
+With a total of `r total_number_of_sessions` sessions altogether, and a total number of non-poster sessions `r total_number_of_sessions - n_pos_sessions`. 
+
+For scheduling into rooms and time slots, we wont include the posters, because they go in their own schedule in the ballroom. 
+
+To help with preventing schedule clashes, we make a unique ID out of the first name and last name to track specific individuals.
+
+```{r}
+all_nonposter_sessions$uid <- 
+  with(all_nonposter_sessions, paste0(`First Name`, 
+                                                 "_", 
+                                                 `Last Name`))
+```
+
+## How many 4 hour slots do we have available?
+
+To find out how many 4 h slots we have available, I looked on the grid on 'Rooom&Time_DG.xlsx' and counted up the 4  slots. I did not count poster sessions here, because they are less than 4 h and they are outside of the room schedule. I rounded down a little:
+
+- Thur afternoon has the ethics bowl from 1-3 pm, so I removed one whole 4 h slot from that part   
+- Fri morning has some time reserved from 9am-12 pm with the note "Reserved for Business Meeting after 12:00pm", so removed one whole 4 h slot from that part also 
+
+Here's what I got for session slots in each day and part of day:
+
+```{r}
+library(tidyverse)
+four_h_slots <- 
+  tribble(~part,       ~Th, ~Fr, ~Sa, ~Su,
+          "morning",    36,  31,  30,  28,
+          "afternoon",  35,  32,  30,  0,
+          "evening",    36,  0,    0,  0)
+
+(four_h_slots)
+```
+
+```{r}
+four_h_slots_long <- 
+  four_h_slots %>% 
+  gather(times, slot, -part)
+
+# how many 4 h slots
+n_four_h_slots <-  sum(four_h_slots_long$slot)
+```
+
+So that's a total of `r n_four_h_slots` 4 hour slots, in which we have to fit all the organised and general sessions. This does not include the posters.
+
+## What are the durations of the sessions? 
+
+We've received information from the SAA about the length of specific sessions, so let's use that:
+
+```{r}
+saa_info_on_session_duration <- 
+  read_excel("../data/raw_data/saa all organizedsession_timeslotABxls.xls", sheet = 2)
+
+# omit rows with no session id
+saa_info_on_session_duration <- 
+  saa_info_on_session_duration %>% 
+  filter(!is.na(`SESSION ID`)) %>% 
+  mutate(`Session Id` = as.character(`SESSION ID`))
+
+# join with our sessions 
+all_nonposter_sessions_with_saa_info <- 
+  all_nonposter_sessions %>% 
+  left_join(saa_info_on_session_duration) 
+
+# papers in a session with saa info on duration 
+all_nonposter_sessions_have_saa_info <- 
+  all_nonposter_sessions_with_saa_info %>% 
+    filter(!is.na(TYPE))
+  
+# papers in a session without saa infor on duration (general sessions?)
+all_nonposter_sessions_not_have_saa_info <- 
+  all_nonposter_sessions_with_saa_info %>% 
+  filter(is.na(TYPE))
+```
+
+
+## How can we prevent one person scheduled in two simultaneous sessions?
+
+Because we will have many parallel sessions, we need to take care that we don't put one person in two simultaneous sessions.
+
+We start by taking a day-part, assign a session to it, and then looping over that day-part to add another session, and another, and so on. Each time we add a session to that day-part, we check to see if the names in the incoming session already exist in the sessions we previously added to this day-part. If a name has already been added to that day-part, then we skip adding the session, and move to the next session. We keep doing this until the tally of hours of all the sessions in the day-part matches the total number of hours we have for that day-part. 
+
+We can compute the total capacity in hours of each day-part like this:
+
+```{r}
+four_h_slots_long$cumsum <- cumsum(four_h_slots_long$slot)
+
+xx <- 
+four_h_slots_long %>% 
+  mutate(day_part = paste0(times, "-", part)) %>% 
+  select(-part, -times) %>% 
+  rename(end = cumsum) %>% 
+  filter(slot != 0)
+
+# get the number of the start slot to go with the number of the end slot
+ xx$start <- 0
+for(i in 1:(nrow(xx))) {
+  xx$start[i] <- 
+    if_else(i == 1, 
+           1,
+            as.numeric(xx[ i-1, 2]) + 1)
+}
+# each slot is 4 hours long
+total_cap <- 
+  xx %>% 
+  mutate(total_capacity = slot * 4) %>% 
+  select(day_part, slot, total_capacity)
+total_cap
+```
+
+Now we will takesession from the big table of sessions and add it into, for example, Th-morning. We'll keep adding more sessions until we reach the capacity of that day-part. 
+
+But, we also need to loop over the sessions as we add more to the day-part to check to see if a person's name is already there or not. If the name is already there, we'll skip adding that session, and try the next session.
+
+```{r while-loop, echo = TRUE, eval = TRUE}
+
+# get all the sessions, but we're going to modify this, so make a copy
+all_nonposter_sessions_have_saa_info$session_time_allowed <- 
+  as.numeric(all_nonposter_sessions_have_saa_info$TIME)
+z7 <- all_nonposter_sessions_have_saa_info
+all_of_the_day_parts <- NULL
+total_cap$hours_of_sessions <- 0
+total_cap$n_sessions <- 0
+total_cap$c_sessions <- 0
+container_for_this_day_part_with_day_from_while <- 0
+i <- 1
+
+# start with each day-part...
+for(i in seq_len(nrow(total_cap))) {
+  
+  # stop loop gracefully when we have assigned all people to day-parts
+  if (nrow(z7) == 0){ break }
+  
+  # how many rows (people) to we have remaning to allocate to a day-part?
+  print(glue('number of people remaining to classify is {nrow(z7)}'))
+  
+  target_capacity <- total_cap$total_capacity[i] - 4
+
+  # prepare a while statement that will take a session, 
+  # check to see if there is a name clash with sessions,
+  # skip adding it if there is clash, then check to see
+  # the culumative duration of the sessions in the day-part 
+  # has exceeeded the total duration of the day-part,
+  # and stop adding sessions if it has.
+  
+# make sure some variables are empty
+cumulative_duration_of_sessions   <-  0
+container_for_this_day_part <- 0
+all_the_people_in_the_session <- 0
+j <- 1
+
+while(cumulative_duration_of_sessions <= target_capacity & 
+      j <= nrow(z7)) {
+ 
+    get_a_session <- z7[j, ]
+    
+    # get the names of all the people in this session...
+    all_the_people_in_this_session <- 
+      all_nonposter_sessions_have_saa_info %>% 
+      filter(`Session Id` == get_a_session$`Session Id`)
+    
+    # get names from what we already have added to this day-part
+     if (j == 1) {
+      # do nothing is this is the first incoming session 
+       distinct_names_for_each_session_so_far <- 0
+    } else {
+      # get distinct names for each session previously added
+      # to this day-part
+      # (don't care about same name multiple times in one session)
+      distinct_names_for_each_session_so_far <- 
+      container_for_this_day_part %>% 
+        group_by(uid) %>% 
+        distinct(uid, .keep_all = TRUE) %>% 
+        pull(uid)
+    }
+      
+    # compare names already in here to names we are about to add
+    if (j == 1) {
+      # do nothing 
+      names_already_in <- 0
+      } else {
+      # check to see if incoming session has names that already exist in this day_part
+      names_already_in <- sum(all_the_people_in_this_session$uid %in% distinct_names_for_each_session_so_far)
+      }
+    
+    # accumulate the incoming session onto the sessions
+    # we've already added to this day-part, if there are no
+    # name conflicts
+    if (j == 1) {
+       container_for_this_day_part <- 
+        all_the_people_in_this_session
+      } else {
+      if (names_already_in == 0) {
+      # if there are no name clashes, 
+      # add these names to previous names in this day-part
+        
+      # bind rows of session that has no clashing  names with 
+      # sessions we already added to this day-part
+      container_for_this_day_part <- 
+        bind_rows(all_the_people_in_this_session,
+                  container_for_this_day_part)
+    }  else {
+      
+        # do not add this session to the day-part
+      }
+    }
+    
+    # compute the duration of session that we've added so far to 
+    # this day-part
+    cumulative_duration_of_sessions <- 
+      container_for_this_day_part %>% 
+      distinct(`Session Id`, .keep_all = TRUE) %>% 
+      pull(session_time_allowed) %>% 
+      sum
+    
+    # store this result
+    total_cap$hours_of_sessions[i] <- cumulative_duration_of_sessions
+    
+    # show a check of what's happening
+    if (j == 1){
+    progress_check <-    
+      data_frame(i = i, 
+                 j = j,
+               'cumulative duration' = cumulative_duration_of_sessions,
+               'sessions added' =  length(unique(container_for_this_day_part$`Session Id`)),
+               people =  nrow(container_for_this_day_part)
+                )
+    } else {
+      progress_check <- bind_rows(progress_check, 
+                                  data_frame(i = i,
+                                             j = j,
+               'cumulative duration' = cumulative_duration_of_sessions,
+               'sessions added' =  length(unique(container_for_this_day_part$`Session Id`)),
+               people =  nrow(container_for_this_day_part)
+                ))
+    }
+    
+       # print(progress_check)
+       
+       # move to next session
+       j <- j + 1
+    } 
+# end of the while loop
+
+ # add an identifier so we can see where we have assigned each session so far
+ container_for_this_day_part_with_day_from_while <- 
+   container_for_this_day_part %>% 
+   mutate(day_part_from_while  = as.character(total_cap$day_part[i]))
+ 
+ # bind rows to previous day-parts we might have done
+  if (i == 1) {
+ 
+  all_of_the_day_parts <- container_for_this_day_part_with_day_from_while
+ 
+  } else {
+    
+    # check to see
+    
+  all_of_the_day_parts <- bind_rows(container_for_this_day_part_with_day_from_while, 
+                                      all_of_the_day_parts)
+  }
+ 
+ # # progress check
+ print(glue('i = {i}'))
+ # 
+ # print(
+ # all_of_the_day_parts %>% 
+ #   group_by(day_part_from_while) %>% 
+ #   summarise(papers = n(),
+ #             sessions = length(unique(`Session Id`))))
+ 
+ total_cap$n_sessions[i] <- length(unique(container_for_this_day_part_with_day_from_while$`Session Id`))
+ 
+ total_cap$c_sessions[i] <-  sum(total_cap$n_sessions)
+
+ print(total_cap)
+
+ # for the next day-part, we need to make sure
+ # we don't add the same session twice to different day-parts
+ # so let's update our big table of abstracts, and drop the session that 
+ # we've already got in the day-part
+
+ z7 <-  
+   z7 %>% 
+   filter(! `Session Id` %in% unique(container_for_this_day_part$`Session Id`))
+ 
+}
+# end of for loop
+ 
+# out put the results
+write.csv(all_of_the_day_parts, 
+          "../data/derived_data/output_of_day_part_classification.csv")
+```
+
+What did we get from this process? The table below shows each day-part, the number of hours that we have available to fill (`total_capacity`) and the number of hours that we have filled so far (`hours_of_sessions`):
+
+```{r}
+total_cap %>% 
+  rename(`Number of sessions` = n_sessions,
+         `Cumulative number of sessions` = c_sessions)
+```
+
+Have we succeeded in avoiding placing one person in two sessions scheduled in the same day-part?
+
+Let's see if there are any names that occur in two or more distinct sessions in the same day-part. 
+
+```{r while-loop-testing, results = 'hide'}
+# check to see what we got from the loop...
+sessions_per_day <- 
+all_of_the_day_parts %>% 
+  group_by(day_part_from_while) %>% 
+  summarise(n_sessions = length(unique(`Session Id`))) 
+
+hours_per_day <- 
+  all_of_the_day_parts %>% 
+  group_by(day_part_from_while, `Session Id`) %>% 
+  slice(1) %>% 
+  summarise(n_hours = sum(session_time_allowed)) %>% 
+  ungroup() %>% 
+  group_by(day_part_from_while) %>% 
+  summarise(n_hours = sum(n_hours)) 
+  
+n_missing_papers <- 
+  nrow(all_nonposter_sessions) - nrow(all_of_the_day_parts)
+
+n_missing_sessions <- 
+  length(unique(all_nonposter_sessions$`Session Id`)) - length(unique(all_of_the_day_parts$`Session Id`))  
+
+missing_sessions <- 
+  unique(all_nonposter_sessions$`Session Id`)[!(unique(all_nonposter_sessions$`Session Id`) %in% unique(all_of_the_day_parts$`Session Id`)) ]
+
+# have we succeeded with no name clashes?
+# in each day-part, do any names occur more than once?
+
+# how to get it? testing...
+ex <- 
+tribble(~'day_part', ~'sess', ~'auth',
+        "th-m",       1,        'al', 
+        "th-a",       2,        'be',
+        "th-a",       3,        'be',
+        "th-e",       4,        'ce',
+        "fr-a",       5,        'de',
+        "fr-a",       5,        'de')
+
+out <- 
+ex %>% 
+  group_by(day_part, auth) %>% 
+  filter(n() > 1) %>% 
+  group_by(sess) %>% 
+  filter(n() == 1) 
+
+# deploy...
+clash <- 
+all_of_the_day_parts %>% 
+  # get authors that have multiple rows (roles or sessions) day-part
+  group_by(day_part_from_while, uid) %>% 
+  filter(n() > 1  ) %>% 
+  # get rows where 
+  group_by(`Session Id`) %>% 
+  filter(n() == 1) # get rows where there are names that occur in more than one session in each day-part
+
+```
+
+Currently we have `r nrow(clash)` schedule clashes, that is, people who are scheduled to be in two or more sessions that are scheduled in the same day-part. That's `r ifelse(nrow(clash) == 0, "great", "not ideal")`. 
+
+## Summary
+
+Now we've got all the organised sessions scheduled into day-parts with no clashes.
+
+What do we stil need to do?
+
+- Put the organised sessions into room slots (though not specific rooms). For example, if Thurs morning has 36 room slots, we need to distribute the sessions assigned to Thurs monrning accross these slots. This is where we can use the multiple knapsack algorithm, so that we can put two 2 hour sessions into one 4 hour slot for a room.    
+- Put the general sessions and posters into day-parts and rooms with no clashes    
+- Deal with the special requests for certain people to be scheduled at certain times. 
+
+
+### Colophon
+
+This report was generated on `r Sys.time()` using the following computational environment and dependencies: 
+
+```{r colophon, cache = FALSE}
+# which R packages and versions?
+devtools::session_info()
+```
+
+The current Git commit details are:
+
+```{r}
+# what commit is this file at? You may need to change the path value
+# if your Rmd is not in analysis/paper/
+git2r::repository("../..")
+```
+

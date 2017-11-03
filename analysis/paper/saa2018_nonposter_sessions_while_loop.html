@@ -53,50 +53,7 @@ if (window.hljs && document.readyState && document.readyState === "complete") {
 </div>
 <div id="how-many-sessions-do-we-have" class="section level2">
 <h2>How many sessions do we have?</h2>
-<pre class="r"><code>library(readxl)
-org_sessions &lt;- read_excel(&quot;../data/raw_data/Organized Session Abstracts_2018_AB.xlsx&quot;)
-
-gen_sessions &lt;- read_excel(&quot;../data/raw_data/01 - gen_paper_sessions_FINAL(oct5)_DG_including_moves v2.xlsx&quot;)
-
-poster_sessions &lt;- 
-  org_sessions %&gt;% 
-  filter(`Session Type` == &quot;Poster Symposium&quot;)
-
-# organised sessions without posters
-org_sessions &lt;- 
-   org_sessions %&gt;% 
-  filter(`Session Type` != &quot;Poster Symposium&quot;)
-  
-# how many unique organised sessions? 
-n_org_sessions &lt;- length(unique(org_sessions$`Session Id`))
-
-# how many unique general sessions? 
-n_gen_sessions &lt;- length(unique(gen_sessions$SESSION))
-
-# how many unique poster sessions? 
-n_pos_sessions &lt;- length(unique(poster_sessions$`Session Id`))
-
-# total number of sessions
-total_number_of_sessions &lt;-  n_org_sessions + n_gen_sessions + n_pos_sessions
-
-# combine organised and general sessions
-org_sessions$`Session Id` &lt;- as.character(org_sessions$`Session Id`)
-gen_sessions$`Session Id` &lt;- gen_sessions$SESSION
-gen_sessions$`Session Type` &lt;- &quot;Symposium&quot;
-
-# get only columns that are also in the organised sessions data frame
-gen_sessions_to_join &lt;- 
-gen_sessions %&gt;% 
-  select(names(gen_sessions)[names(gen_sessions) %in% names(org_sessions)])
-
-all_nonposter_sessions &lt;- 
-  bind_rows(gen_sessions_to_join, org_sessions)</code></pre>
 <p>We have this many sessions in each major category:</p>
-<pre class="r"><code># table
-tribble(       ~'Session type',             ~number,
-                      'Organised sessions',        n_org_sessions,
-                      'Poster sessions',           n_pos_sessions,
-                      'General sessions',          n_gen_sessions)</code></pre>
 <div data-pagedtable="false">
 <script data-pagedtable-source type="application/json">
 {"columns":[{"label":["Session type"],"name":[1],"type":["chr"],"align":["left"]},{"label":["number"],"name":[2],"type":["int"],"align":["right"]}],"data":[{"1":"Organised sessions","2":"214"},{"1":"Poster sessions","2":"18"},{"1":"General sessions","2":"57"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
@@ -105,10 +62,6 @@ tribble(       ~'Session type',             ~number,
 <p>With a total of 289 sessions altogether, and a total number of non-poster sessions 271.</p>
 <p>For scheduling into rooms and time slots, we wont include the posters, because they go in their own schedule in the ballroom.</p>
 <p>To help with preventing schedule clashes, we make a unique ID out of the first name and last name to track specific individuals.</p>
-<pre class="r"><code>all_nonposter_sessions$uid &lt;- 
-  with(all_nonposter_sessions, paste0(`First Name`, 
-                                                 &quot;_&quot;, 
-                                                 `Last Name`))</code></pre>
 </div>
 <div id="how-many-4-hour-slots-do-we-have-available" class="section level2">
 <h2>How many 4 hour slots do we have available?</h2>
@@ -119,82 +72,22 @@ tribble(       ~'Session type',             ~number,
 <li>Fri morning has some time reserved from 9am-12 pm with the note “Reserved for Business Meeting after 12:00pm”, so removed one whole 4 h slot from that part also</li>
 </ul>
 <p>Here’s what I got for session slots in each day and part of day:</p>
-<pre class="r"><code>library(tidyverse)
-four_h_slots &lt;- 
-  tribble(~part,       ~Th, ~Fr, ~Sa, ~Su,
-          &quot;morning&quot;,    36,  31,  30,  28,
-          &quot;afternoon&quot;,  35,  32,  30,  0,
-          &quot;evening&quot;,    36,  0,    0,  0)
-
-(four_h_slots)</code></pre>
 <div data-pagedtable="false">
 <script data-pagedtable-source type="application/json">
 {"columns":[{"label":["part"],"name":[1],"type":["chr"],"align":["left"]},{"label":["Th"],"name":[2],"type":["dbl"],"align":["right"]},{"label":["Fr"],"name":[3],"type":["dbl"],"align":["right"]},{"label":["Sa"],"name":[4],"type":["dbl"],"align":["right"]},{"label":["Su"],"name":[5],"type":["dbl"],"align":["right"]}],"data":[{"1":"morning","2":"36","3":"31","4":"30","5":"28"},{"1":"afternoon","2":"35","3":"32","4":"30","5":"0"},{"1":"evening","2":"36","3":"0","4":"0","5":"0"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
   </script>
 </div>
-<pre class="r"><code>four_h_slots_long &lt;- 
-  four_h_slots %&gt;% 
-  gather(times, slot, -part)
-
-# how many 4 h slots
-n_four_h_slots &lt;-  sum(four_h_slots_long$slot)</code></pre>
 <p>So that’s a total of 258 4 hour slots, in which we have to fit all the organised and general sessions. This does not include the posters.</p>
 </div>
 <div id="what-are-the-durations-of-the-sessions" class="section level2">
 <h2>What are the durations of the sessions?</h2>
 <p>We’ve received information from the SAA about the length of specific sessions, so let’s use that:</p>
-<pre class="r"><code>saa_info_on_session_duration &lt;- 
-  read_excel(&quot;../data/raw_data/saa all organizedsession_timeslotABxls.xls&quot;, sheet = 2)
-
-# omit rows with no session id
-saa_info_on_session_duration &lt;- 
-  saa_info_on_session_duration %&gt;% 
-  filter(!is.na(`SESSION ID`)) %&gt;% 
-  mutate(`Session Id` = as.character(`SESSION ID`))
-
-# join with our sessions 
-all_nonposter_sessions_with_saa_info &lt;- 
-  all_nonposter_sessions %&gt;% 
-  left_join(saa_info_on_session_duration) 
-
-# papers in a session with saa info on duration 
-all_nonposter_sessions_have_saa_info &lt;- 
-  all_nonposter_sessions_with_saa_info %&gt;% 
-    filter(!is.na(TYPE))
-  
-# papers in a session without saa infor on duration (general sessions?)
-all_nonposter_sessions_not_have_saa_info &lt;- 
-  all_nonposter_sessions_with_saa_info %&gt;% 
-  filter(is.na(TYPE))</code></pre>
 </div>
 <div id="how-can-we-prevent-one-person-scheduled-in-two-simultaneous-sessions" class="section level2">
 <h2>How can we prevent one person scheduled in two simultaneous sessions?</h2>
 <p>Because we will have many parallel sessions, we need to take care that we don’t put one person in two simultaneous sessions.</p>
 <p>We start by taking a day-part, assign a session to it, and then looping over that day-part to add another session, and another, and so on. Each time we add a session to that day-part, we check to see if the names in the incoming session already exist in the sessions we previously added to this day-part. If a name has already been added to that day-part, then we skip adding the session, and move to the next session. We keep doing this until the tally of hours of all the sessions in the day-part matches the total number of hours we have for that day-part.</p>
 <p>We can compute the total capacity in hours of each day-part like this:</p>
-<pre class="r"><code>four_h_slots_long$cumsum &lt;- cumsum(four_h_slots_long$slot)
-
-xx &lt;- 
-four_h_slots_long %&gt;% 
-  mutate(day_part = paste0(times, &quot;-&quot;, part)) %&gt;% 
-  select(-part, -times) %&gt;% 
-  rename(end = cumsum) %&gt;% 
-  filter(slot != 0)
-
-# get the number of the start slot to go with the number of the end slot
- xx$start &lt;- 0
-for(i in 1:(nrow(xx))) {
-  xx$start[i] &lt;- 
-    if_else(i == 1, 
-           1,
-            as.numeric(xx[ i-1, 2]) + 1)
-}
-# each slot is 4 hours long
-total_cap &lt;- 
-  xx %&gt;% 
-  mutate(total_capacity = slot * 4) %&gt;% 
-  select(day_part, slot, total_capacity)
-total_cap</code></pre>
 <div data-pagedtable="false">
 <script data-pagedtable-source type="application/json">
 {"columns":[{"label":["day_part"],"name":[1],"type":["chr"],"align":["left"]},{"label":["slot"],"name":[2],"type":["dbl"],"align":["right"]},{"label":["total_capacity"],"name":[3],"type":["dbl"],"align":["right"]}],"data":[{"1":"Th-morning","2":"36","3":"144"},{"1":"Th-afternoon","2":"35","3":"140"},{"1":"Th-evening","2":"36","3":"144"},{"1":"Fr-morning","2":"31","3":"124"},{"1":"Fr-afternoon","2":"32","3":"128"},{"1":"Sa-morning","2":"30","3":"120"},{"1":"Sa-afternoon","2":"30","3":"120"},{"1":"Su-morning","2":"28","3":"112"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
@@ -228,8 +121,8 @@ for(i in seq_len(nrow(total_cap))) {
   # prepare a while statement that will take a session, 
   # check to see if there is a name clash with sessions,
   # skip adding it if there is clash, then check to see
-  # the culumative duration of the sessions in the day-part 
-  # has exceeeded the total duration of the day-part,
+  # the cumulative duration of the sessions in the day-part 
+  # has exceeded the total duration of the day-part,
   # and stop adding sessions if it has.
   
 # make sure some variables are empty
@@ -464,9 +357,6 @@ while(cumulative_duration_of_sessions &lt;= target_capacity &amp;
 write.csv(all_of_the_day_parts, 
           &quot;../data/derived_data/output_of_day_part_classification.csv&quot;)</code></pre>
 <p>What did we get from this process? The table below shows each day-part, the number of hours that we have available to fill (<code>total_capacity</code>) and the number of hours that we have filled so far (<code>hours_of_sessions</code>):</p>
-<pre class="r"><code>total_cap %&gt;% 
-  rename(`Number of sessions` = n_sessions,
-         `Cumulative number of sessions` = c_sessions)</code></pre>
 <div data-pagedtable="false">
 <script data-pagedtable-source type="application/json">
 {"columns":[{"label":["day_part"],"name":[1],"type":["chr"],"align":["left"]},{"label":["slot"],"name":[2],"type":["dbl"],"align":["right"]},{"label":["total_capacity"],"name":[3],"type":["dbl"],"align":["right"]},{"label":["hours_of_sessions"],"name":[4],"type":["dbl"],"align":["right"]},{"label":["Number of sessions"],"name":[5],"type":["dbl"],"align":["right"]},{"label":["Cumulative number of sessions"],"name":[6],"type":["dbl"],"align":["right"]}],"data":[{"1":"Th-morning","2":"36","3":"144","4":"140.50","5":"45","6":"45"},{"1":"Th-afternoon","2":"35","3":"140","4":"137.75","5":"46","6":"91"},{"1":"Th-evening","2":"36","3":"144","4":"141.25","5":"55","6":"146"},{"1":"Fr-morning","2":"31","3":"124","4":"111.00","5":"46","6":"192"},{"1":"Fr-afternoon","2":"32","3":"128","4":"45.75","5":"19","6":"211"},{"1":"Sa-morning","2":"30","3":"120","4":"7.25","5":"3","6":"214"},{"1":"Sa-afternoon","2":"30","3":"120","4":"0.00","5":"0","6":"0"},{"1":"Su-morning","2":"28","3":"112","4":"0.00","5":"0","6":"0"}],"options":{"columns":{"min":{},"max":[10]},"rows":{"min":[10],"max":[10]},"pages":{}}}
@@ -529,6 +419,11 @@ all_of_the_day_parts %&gt;%
   filter(n() == 1) # get rows where there are names that occur in more than one session in each day-part</code></pre>
 <p>Currently we have 0 schedule clashes, that is, people who are scheduled to be in two or more sessions that are scheduled in the same day-part. That’s great.</p>
 </div>
+<div id="organise-the-sessions-in-each-day-part-into-4-hour-slots" class="section level2">
+<h2>Organise the sessions in each day-part into 4 hour slots</h2>
+<p>Now that we have allocated all the organised sessions into day-parts, we need to group them into 4 hour slots so we can assign them to specific rooms.</p>
+<p>We can use the mulitple knapsack algorithm for this. For example, Thurs morning has 36 slots of 4 hours each.</p>
+</div>
 <div id="summary" class="section level2">
 <h2>Summary</h2>
 <p>Now we’ve got all the organised sessions scheduled into day-parts with no clashes.</p>
@@ -542,10 +437,8 @@ all_of_the_day_parts %&gt;%
 </ul>
 <div id="colophon" class="section level3">
 <h3>Colophon</h3>
-<p>This report was generated on 2017-11-01 09:07:10 using the following computational environment and dependencies:</p>
-<pre class="r"><code># which R packages and versions?
-devtools::session_info()
-#&gt;  setting  value                       
+<p>This report was generated on 2017-11-01 14:54:39 using the following computational environment and dependencies:</p>
+<pre><code>#&gt;  setting  value                       
 #&gt;  version  R version 3.4.1 (2017-06-30)
 #&gt;  system   x86_64, mingw32             
 #&gt;  ui       RTerm                       
@@ -555,6 +448,7 @@ devtools::session_info()
 #&gt;  date     2017-11-01                  
 #&gt; 
 #&gt;  package      * version    date       source                             
+#&gt;  adagio       * 0.6.5      2016-05-29 CRAN (R 3.4.1)                     
 #&gt;  assertthat     0.2.0      2017-04-11 CRAN (R 3.4.0)                     
 #&gt;  backports      1.1.0      2017-05-22 CRAN (R 3.4.0)                     
 #&gt;  base         * 3.4.1      2017-06-30 local                              
@@ -625,12 +519,9 @@ devtools::session_info()
 #&gt;  xml2           1.1.1      2017-01-24 CRAN (R 3.4.1)                     
 #&gt;  yaml           2.1.14     2016-11-12 CRAN (R 3.4.0)</code></pre>
 <p>The current Git commit details are:</p>
-<pre class="r"><code># what commit is this file at? You may need to change the path value
-# if your Rmd is not in analysis/paper/
-git2r::repository(&quot;../..&quot;)
-#&gt; Local:    master C:/Users/bmarwick/Desktop/saaabstracts/
+<pre><code>#&gt; Local:    master C:/Users/bmarwick/Desktop/saaabstracts/
 #&gt; Remote:   master @ origin (https://github.com/benmarwick/saaabstracts.git)
-#&gt; Head:     [a9d34e1] 2017-10-27: while loop seems to be working, we can assign sessions while checking for day-part conflicts</code></pre>
+#&gt; Head:     [9184b14] 2017-11-01: use while-loop to assign people to day-parts without clashes</code></pre>
 </div>
 </div>
 

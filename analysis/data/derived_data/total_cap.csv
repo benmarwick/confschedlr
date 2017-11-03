@@ -1,0 +1,9 @@
+"","day_part","slot","total_capacity","hours_of_sessions","n_sessions","c_sessions"
+"1","Th-morning",36,144,114.25,39,39
+"2","Th-afternoon",35,140,112.75,34,73
+"3","Th-evening",36,144,116.75,36,109
+"4","Fr-morning",31,124,95,29,138
+"5","Fr-afternoon",32,128,99.5,34,172
+"6","Sa-morning",30,120,91.25,32,204
+"7","Sa-afternoon",30,120,92,35,239
+"8","Su-morning",28,112,68,26,265

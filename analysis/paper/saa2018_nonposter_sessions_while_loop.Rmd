@@ -17,7 +17,7 @@ knitr::opts_chunk$set(
   collapse = TRUE,
   warning = FALSE,
   message = FALSE,
-  echo = TRUE,
+  echo = FALSE,
   comment = "#>",
   fig.path = "figures"
 )
@@ -26,8 +26,8 @@ library(saaabstracts)
 library(readxl)
 library(tidyverse)
 library(knitr)
-library(kableExtra)
 library(glue)
+
 ```
 ## Introduction
 
@@ -40,6 +40,13 @@ library(readxl)
 org_sessions <- read_excel("../data/raw_data/Organized Session Abstracts_2018_AB.xlsx")
 
 gen_sessions <- read_excel("../data/raw_data/01 - gen_paper_sessions_FINAL(oct5)_DG_including_moves v2.xlsx")
+
+gen_sessions <- 
+gen_sessions %>% 
+  mutate(`Session Id` = SESSION) %>% 
+  mutate(`Session Id` =  ifelse(`Session Id` == "35B",
+          max(as.numeric(`Session Id`), na.rm = TRUE) + 1, 
+          as.numeric(`Session Id`) ))
 
 poster_sessions <- 
   org_sessions %>% 
@@ -54,7 +61,7 @@ org_sessions <-
 n_org_sessions <- length(unique(org_sessions$`Session Id`))
 
 # how many unique general sessions? 
-n_gen_sessions <- length(unique(gen_sessions$SESSION))
+n_gen_sessions <- length(unique(gen_sessions$`Session Id`))
 
 # how many unique poster sessions? 
 n_pos_sessions <- length(unique(poster_sessions$`Session Id`))
@@ -63,8 +70,7 @@ n_pos_sessions <- length(unique(poster_sessions$`Session Id`))
 total_number_of_sessions <-  n_org_sessions + n_gen_sessions + n_pos_sessions
 
 # combine organised and general sessions
-org_sessions$`Session Id` <- as.character(org_sessions$`Session Id`)
-gen_sessions$`Session Id` <- gen_sessions$SESSION
+org_sessions$`Session Id` <- as.numeric(org_sessions$`Session Id`)
 gen_sessions$`Session Type` <- "Symposium"
 
 # get only columns that are also in the organised sessions data frame
@@ -76,7 +82,7 @@ all_nonposter_sessions <-
   bind_rows(gen_sessions_to_join, org_sessions)
 ```
 
-We have this many sessions in each major category:
+We have this many sessions in each major category, according to my tally of the individual papers:
 
 ```{r}
 # table
@@ -135,29 +141,43 @@ So that's a total of `r n_four_h_slots` 4 hour slots, in which we have to fit al
 We've received information from the SAA about the length of specific sessions, so let's use that:
 
 ```{r}
-saa_info_on_session_duration <- 
-  read_excel("../data/raw_data/saa all organizedsession_timeslotABxls.xls", sheet = 2)
+saa_info_on_organised_session_duration <- 
+  read_excel("../data/raw_data/saa all organizedsession_timeslotABv3.xls", sheet = 2) %>% 
+  mutate(`Session Id` = `SESSION ID`)
 
-# omit rows with no session id
-saa_info_on_session_duration <- 
-  saa_info_on_session_duration %>% 
-  filter(!is.na(`SESSION ID`)) %>% 
-  mutate(`Session Id` = as.character(`SESSION ID`))
+computed_general_session_duration <- 
+  gen_sessions %>% 
+  group_by(`Session Id`) %>% 
+  summarise(n_papers = n()) %>% 
+  mutate(TIME = n_papers * 0.25) %>%  # 15 mins per paper
+  mutate(`Session Id` =  ifelse(`Session Id` == "35B",
+          max(as.numeric(`Session Id`), na.rm = TRUE) + 1, 
+          as.numeric(`Session Id`) ))
 
-# join with our sessions 
-all_nonposter_sessions_with_saa_info <- 
+# combine general and organised session durations
+org_and_gen_session_durations <- 
+  saa_info_on_organised_session_duration %>% 
+  filter(!is.na(`Session Id`)) %>% 
+  mutate(n_papers = `N papers`,
+         TIME = as.numeric(TIME)) %>% 
+  select(`Session Id`, TIME, n_papers) %>% 
+  rbind(computed_general_session_duration) %>% 
+  filter(!is.na(TIME)) %>% 
+  # add 15 m min  to each session for a changeover time
+  mutate(TIME = if_else(TIME == 4.0, 
+                        TIME,
+                        TIME + 0.25))
+
+head(org_and_gen_session_durations)
+
+# join the session duration onto each paper
+
+all_nonposter_sessions_with_session_durations <- 
   all_nonposter_sessions %>% 
-  left_join(saa_info_on_session_duration) 
-
-# papers in a session with saa info on duration 
-all_nonposter_sessions_have_saa_info <- 
-  all_nonposter_sessions_with_saa_info %>% 
-    filter(!is.na(TYPE))
+  mutate(`Session Id` = as.numeric(`Session Id`)) %>% 
+  left_join(org_and_gen_session_durations) 
   
-# papers in a session without saa infor on duration (general sessions?)
-all_nonposter_sessions_not_have_saa_info <- 
-  all_nonposter_sessions_with_saa_info %>% 
-  filter(is.na(TYPE))
+head(all_nonposter_sessions_with_session_durations)
 ```
 
 
@@ -192,19 +212,24 @@ total_cap <-
   xx %>% 
   mutate(total_capacity = slot * 4) %>% 
   select(day_part, slot, total_capacity)
+
+# View
 total_cap
 ```
 
-Now we will takesession from the big table of sessions and add it into, for example, Th-morning. We'll keep adding more sessions until we reach the capacity of that day-part. 
+Now we will take session from the big table of sessions and add it into, for example, Th-morning. We'll keep adding more sessions until we reach the capacity of that day-part. 
 
 But, we also need to loop over the sessions as we add more to the day-part to check to see if a person's name is already there or not. If the name is already there, we'll skip adding that session, and try the next session.
 
-```{r while-loop, echo = TRUE, eval = TRUE}
+```{r while-loop, echo = TRUE, eval = TRUE cache = TRUE}
 
-# get all the sessions, but we're going to modify this, so make a copy
-all_nonposter_sessions_have_saa_info$session_time_allowed <- 
-  as.numeric(all_nonposter_sessions_have_saa_info$TIME)
-z7 <- all_nonposter_sessions_have_saa_info
+# prepare some variables... get all the sessions, 
+# but we're going to modify this, so make a copy
+org_and_gen_session_durations$session_time_allowed <- 
+  as.numeric(org_and_gen_session_durations$TIME)
+all_nonposter_sessions_with_session_durations$session_time_allowed <- 
+  all_nonposter_sessions_with_session_durations$TIME
+z7 <- all_nonposter_sessions_with_session_durations
 all_of_the_day_parts <- NULL
 total_cap$hours_of_sessions <- 0
 total_cap$n_sessions <- 0
@@ -221,13 +246,19 @@ for(i in seq_len(nrow(total_cap))) {
   # how many rows (people) to we have remaning to allocate to a day-part?
   print(glue('number of people remaining to classify is {nrow(z7)}'))
   
-  target_capacity <- total_cap$total_capacity[i] - 4
+  # add some buffer time to nudge it back so we don't overfill a day-part
+  # maybe if this buffer is bigger, the knapsack will be faster?
+  # A big enough buffer should avoid the 0 group in the knapsack results
+  # which indicates that the knapsack fn can't fit all the sessions in the
+  # day-part
+  buffer <- 30
+  target_capacity <- total_cap$total_capacity[i] - buffer
 
   # prepare a while statement that will take a session, 
   # check to see if there is a name clash with sessions,
   # skip adding it if there is clash, then check to see
-  # the culumative duration of the sessions in the day-part 
-  # has exceeeded the total duration of the day-part,
+  # the cumulative duration of the sessions in the day-part 
+  # has exceeded the total duration of the day-part,
   # and stop adding sessions if it has.
   
 # make sure some variables are empty
@@ -243,7 +274,7 @@ while(cumulative_duration_of_sessions <= target_capacity &
     
     # get the names of all the people in this session...
     all_the_people_in_this_session <- 
-      all_nonposter_sessions_have_saa_info %>% 
+      all_nonposter_sessions_with_session_durations %>% 
       filter(`Session Id` == get_a_session$`Session Id`)
     
     # get names from what we already have added to this day-part
@@ -377,7 +408,17 @@ while(cumulative_duration_of_sessions <= target_capacity &
 # out put the results
 write.csv(all_of_the_day_parts, 
           "../data/derived_data/output_of_day_part_classification.csv")
+
+write.csv(total_cap, "../data/derived_data/total_cap.csv")
 ```
+
+```{r}
+# read them in, if we need to
+all_of_the_day_parts <- readr::read_csv("../data/derived_data/output_of_day_part_classification.csv")
+
+total_cap <- readr::read_csv("../data/derived_data/total_cap.csv")
+```
+
 
 What did we get from this process? The table below shows each day-part, the number of hours that we have available to fill (`total_capacity`) and the number of hours that we have filled so far (`hours_of_sessions`):
 
@@ -391,7 +432,7 @@ Have we succeeded in avoiding placing one person in two sessions scheduled in th
 
 Let's see if there are any names that occur in two or more distinct sessions in the same day-part. 
 
-```{r while-loop-testing, results = 'hide'}
+```{r while-loop-testing, results = 'hide', echo = TRUE}
 # check to see what we got from the loop...
 sessions_per_day <- 
 all_of_the_day_parts %>% 
@@ -408,13 +449,13 @@ hours_per_day <-
   summarise(n_hours = sum(n_hours)) 
   
 n_missing_papers <- 
-  nrow(all_nonposter_sessions) - nrow(all_of_the_day_parts)
+  nrow(all_nonposter_sessions_with_session_durations) - nrow(all_of_the_day_parts)
 
 n_missing_sessions <- 
-  length(unique(all_nonposter_sessions$`Session Id`)) - length(unique(all_of_the_day_parts$`Session Id`))  
+  length(unique(all_nonposter_sessions_with_session_durations$`Session Id`)) - length(unique(all_of_the_day_parts$`Session Id`))  
 
 missing_sessions <- 
-  unique(all_nonposter_sessions$`Session Id`)[!(unique(all_nonposter_sessions$`Session Id`) %in% unique(all_of_the_day_parts$`Session Id`)) ]
+  unique(all_nonposter_sessions_with_session_durations$`Session Id`)[!(unique(all_nonposter_sessions_with_session_durations$`Session Id`) %in% unique(all_of_the_day_parts$`Session Id`)) ]
 
 # have we succeeded with no name clashes?
 # in each day-part, do any names occur more than once?
@@ -450,9 +491,505 @@ all_of_the_day_parts %>%
 
 Currently we have `r nrow(clash)` schedule clashes, that is, people who are scheduled to be in two or more sessions that are scheduled in the same day-part. That's `r ifelse(nrow(clash) == 0, "great", "not ideal")`. 
 
+## Organise the sessions in each day-part into 4 hour slots
+
+Now that we have allocated all the organised sessions into day-parts, we need to group them into 4 hour slots so we can assign them to specific rooms.
+
+We can use the mulitple knapsack algorithm for this. For example, Thurs morning has 36 slots of 4 hours each. 
+
+We have a series of functions, one for each day-part, then we run them, and write the output to CSV.
+
+```{r}
+# thu-morning
+
+thu_mo <- function(){
+
+# get the slots available for this day-part
+thu_morning_slots <- 
+  total_cap %>% 
+  filter(day_part == 'Th-morning') %>% 
+  pull(slot)
+
+# get the session id's assigned to this day-part
+thu_morning_sessions <- 
+  all_of_the_day_parts %>% 
+  group_by(`Session Id`) %>% 
+  filter(day_part_from_while == 'Th-morning') %>% 
+  slice(1)
+
+slots_to_fill <- rep(4, thu_morning_slots) * 60 # so many 4 hour slots that we need to fill
+
+sessions_we_have <- thu_morning_sessions$session_time_allowed * 60
+
+library(adagio)
+# mknapsack calling signature is: mknapsack(values, weights, capacities)
+solution <- mknapsack(sessions_we_have, 
+                      sessions_we_have,
+					  slots_to_fill)
+
+thu_morning_sessions$computed_slot <- solution$ksack
+
+write.csv(thu_morning_sessions,
+          "../data/derived_data/thu_morning_sessions.csv")
+}
+
+# Here's thursday afternoon:
+
+# thu-afternoon
+thu_af <- function(){
+
+# get the slots available for this day-part
+thu_afternoon_slots <- 
+  total_cap %>% 
+  filter(day_part == 'Th-afternoon') %>% 
+  pull(slot)
+
+# get the session id's assigned to this day-part
+thu_afternoon_sessions <- 
+  all_of_the_day_parts %>% 
+  group_by(`Session Id`) %>% 
+  filter(day_part_from_while == 'Th-afternoon') %>% 
+  slice(1)
+
+slots_to_fill <- rep(4, thu_afternoon_slots) * 60 # so many 4 hour slots that we need to fill
+
+sessions_we_have <- thu_afternoon_sessions$session_time_allowed * 60
+
+library(adagio)
+# mknapsack calling signature is: mknapsack(values, weights, capacities)
+solution <- mknapsack(sessions_we_have, 
+                      sessions_we_have,
+					  slots_to_fill)
+
+thu_afternoon_sessions$computed_slot <- solution$ksack
+
+write.csv(thu_afternoon_sessions, 
+          "../data/derived_data/thu_afternoon_sessions.csv")
+}
+
+# Here's thursday evening:
+
+# thu-evening
+
+thu_ev <- function(){
+
+# get the slots available for this day-part
+thu_evening_slots <- 
+  total_cap %>% 
+  filter(day_part == 'Th-evening') %>% 
+  pull(slot)
+
+# get the session id's assigned to this day-part
+thu_evening_sessions <- 
+  all_of_the_day_parts %>% 
+  group_by(`Session Id`) %>% 
+  filter(day_part_from_while == 'Th-evening') %>% 
+  slice(1)
+
+slots_to_fill <- rep(4, thu_evening_slots) * 60 # so many 4 hour slots that we need to fill
+
+sessions_we_have <- thu_evening_sessions$session_time_allowed * 60
+
+library(adagio)
+# mknapsack calling signature is: mknapsack(values, weights, capacities)
+solution <- mknapsack(sessions_we_have, 
+                      sessions_we_have,
+					  slots_to_fill)
+
+thu_evening_sessions$computed_slot <- solution$ksack
+
+write.csv(thu_evening_sessions, 
+          "../data/derived_data/thu_evening_sessions.csv")
+}
+
+
+# Here's friday morning:
+
+# fri-morning
+
+fri_mo <- function(){
+
+# get the slots available for this day-part
+fri_morning_slots <- 
+  total_cap %>% 
+  filter(day_part == 'Fr-morning') %>% 
+  pull(slot)
+
+# get the session id's assigned to this day-part
+fri_morning_sessions <- 
+  all_of_the_day_parts %>% 
+  group_by(`Session Id`) %>% 
+  filter(day_part_from_while == 'Fr-morning') %>% 
+  slice(1)
+
+slots_to_fill <- rep(4, fri_morning_slots) * 60 # so many 4 hour slots that we need to fill
+
+sessions_we_have <- fri_morning_sessions$session_time_allowed * 60
+
+library(adagio)
+# mknapsack calling signature is: mknapsack(values, weights, capacities)
+solution <- mknapsack(sessions_we_have, 
+                      sessions_we_have,
+					  slots_to_fill)
+
+fri_morning_sessions$computed_slot <- solution$ksack
+
+write.csv(fri_morning_sessions, 
+          "../data/derived_data/fri_morning_sessions.csv")
+}
+
+# Here's friday afternoon:
+
+# fri-afternoon
+
+fri_af <- function(){
+
+# get the slots available for this day-part
+fri_afternoon_slots <- 
+  total_cap %>% 
+  filter(day_part == 'Fr-afternoon') %>% 
+  pull(slot)
+
+# get the session id's assigned to this day-part
+fri_afternoon_sessions <- 
+  all_of_the_day_parts %>% 
+  group_by(`Session Id`) %>% 
+  filter(day_part_from_while == 'Fr-afternoon') %>% 
+  slice(1)
+
+slots_to_fill <- rep(4, fri_afternoon_slots) * 60 # so many 4 hour slots that we need to fill
+
+sessions_we_have <- fri_afternoon_sessions$session_time_allowed * 60
+
+library(adagio)
+# mknapsack calling signature is: mknapsack(values, weights, capacities)
+solution <- mknapsack(sessions_we_have, 
+                      sessions_we_have,
+					  slots_to_fill)
+
+fri_afternoon_sessions$computed_slot <- solution$ksack
+
+write.csv(fri_afternoon_sessions, 
+          "../data/derived_data/fri_afternoon_sessions.csv")
+}
+
+# Here's Saturday morning:
+
+# sat-morning
+sat_mo <- function(){
+  
+# get the slots available for this day-part
+sat_morning_slots <- 
+  total_cap %>% 
+  filter(day_part == 'Sa-morning') %>% 
+  pull(slot)
+
+# get the session id's assigned to this day-part
+sat_morning_sessions <- 
+  all_of_the_day_parts %>% 
+  group_by(`Session Id`) %>% 
+  filter(day_part_from_while == 'Sa-morning') %>% 
+  slice(1)
+
+slots_to_fill <- rep(4, sat_morning_slots) * 60 # so many 4 hour slots that we need to fill
+
+sessions_we_have <- sat_morning_sessions$session_time_allowed * 60
+
+library(adagio)
+# mknapsack calling signature is: mknapsack(values, weights, capacities)
+solution <- mknapsack(sessions_we_have, 
+                      sessions_we_have,
+					  slots_to_fill)
+
+sat_morning_sessions$computed_slot <- solution$ksack
+
+write.csv(sat_morning_sessions, 
+          "../data/derived_data/sat_morning_sessions.csv")
+}
+
+# Here's saturday afternoon:
+
+# sat-afternoon
+
+sat_af <- function(){
+
+# get the slots available for this day-part
+sat_afternoon_slots <- 
+  total_cap %>% 
+  filter(day_part == 'Sa-afternoon') %>% 
+  pull(slot)
+
+# get the session id's assigned to this day-part
+sat_afternoon_sessions <- 
+  all_of_the_day_parts %>% 
+  group_by(`Session Id`) %>% 
+  filter(day_part_from_while == 'Sa-afternoon') %>% 
+  slice(1)
+
+slots_to_fill <- rep(4, sat_afternoon_slots) * 60 # so many 4 hour slots that we need to fill
+
+sessions_we_have <- sat_afternoon_sessions$session_time_allowed * 60
+
+library(adagio)
+# mknapsack calling signature is: mknapsack(values, weights, capacities)
+solution <- mknapsack(sessions_we_have, 
+                      sessions_we_have,
+					  slots_to_fill)
+
+sat_afternoon_sessions$computed_slot <- solution$ksack
+
+write.csv(sat_afternoon_sessions, 
+          "../data/derived_data/sat_afternoon_sessions.csv")
+}
+
+# Here's sunday morning:
+
+# sun-morning
+sun_mo <- function(){
+
+# get the slots available for this day-part
+sun_morning_slots <- 
+  total_cap %>% 
+  filter(day_part == 'Su-morning') %>% 
+  pull(slot)
+
+# get the session id's assigned to this day-part
+sun_morning_sessions <- 
+  all_of_the_day_parts %>% 
+  group_by(`Session Id`) %>% 
+  filter(day_part_from_while == 'Su-morning') %>% 
+  slice(1)
+
+slots_to_fill <- rep(4, sun_morning_slots) * 60 # so many 4 hour slots that we need to fill
+
+sessions_we_have <- sun_morning_sessions$session_time_allowed * 60
+
+library(adagio)
+# mknapsack calling signature is: mknapsack(values, weights, capacities)
+solution <- mknapsack(sessions_we_have, 
+                      sessions_we_have,
+					  slots_to_fill)
+
+sun_morning_sessions$computed_slot <- solution$ksack
+
+write.csv(sun_morning_sessions, 
+          "../data/derived_data/sun_morning_sessions.csv")
+}
+
+```
+
+```{r}
+# run all of these
+thu_mo()
+thu_af()
+thu_ev()
+fri_mo()
+fri_af()
+sat_mo()
+sat_af()
+sun_mo()
+
+# why do these sometime have a 0 group? Because the fn can't fit it all in! So we need to add more buffer to each day-part in the while loop
+```
+
+## Resolving conflicts with requested times
+
+Now let's get all the names of the people in each day-part to check for the special requests that a few people have made:
+
+```{r}
+
+# read in the day-part data from the while-loop
+sessions_in_day_parts <- list.files("../data/derived_data", pattern = "_sessions.csv", full.names = TRUE)
+sessions_in_day_parts_data <- 
+  map(sessions_in_day_parts, 
+       ~read_csv(.x))
+
+# for each day-part, join with the all names of the people in each session
+sessions_in_day_parts_data_with_all_names <- 
+  map(sessions_in_day_parts_data,
+      ~.x %>% 
+        left_join(all_of_the_day_parts, by = 'Session Id')
+      )
+
+# get day-parts to use in file names
+day_parts_of_list <- 
+  map_chr(sessions_in_day_parts_data_with_all_names, 
+    ~unique(.x$day_part_from_while.y))
+
+# write these out to CSV
+walk2(sessions_in_day_parts_data_with_all_names, 
+     day_parts_of_list,
+     ~write_csv(.x,  path = glue("../data/derived_data/{.y}-all-names.csv")))
+
+# any computer slots with 0?
+sessions_in_day_parts_data_with_all_names_df <- 
+bind_rows(sessions_in_day_parts_data_with_all_names)
+
+sessions_in_day_parts_data_with_all_names_df %>% 
+  filter(computed_slot == 0)
+```
+
+Sat morning is a focus of many of the special requests, let's have a look at that
+
+```{r}
+Sa_morning_names <- sessions_in_day_parts_data_with_all_names[[which(day_parts_of_list == "Sa-morning")]]
+
+# read in the sheet on conflicts
+conflicts <- read_excel("../data/raw_data/Conflicts.xlsx")
+# make a unique name variable
+conflicts$uid <- glue('{conflicts$PRENOM}_{conflicts$NOM}')
+# get the ones for Sa-morning
+Sa_morning_conflicts <- 
+  conflicts %>% 
+  filter(grepl("Sa", CONFLICTS))
+
+# check to see if we have a problem
+Sa_morning_conflict_result <- Sa_morning_names$uid.y[Sa_morning_names$uid.y %in% Sa_morning_conflicts$uid]
+
+# double-check
+double_check <- 
+Sa_morning_names[Sa_morning_names$`Last Name.y` %in% Sa_morning_conflicts$NOM, ]
+# it's ok
+```
+
+We have `r length(Sa_morning_conflict_result)` conflicts on Saturday morning, that's `r ifelse(length(Sa_morning_conflict_result) == 0, "great", "not ideal")`
+
+What about conflicts in other day-parts?
+
+```{r}
+other_conflicts <- 
+  conflicts %>% 
+  filter(!grepl("Sa", CONFLICTS))
+```
+
+There are just `r nrow(other_conflicts)`, so let's do it one by one.
+
+1. Deborah Nichols doesn't want to be in Thurs AM, Fri AM. When do we have her?
+
+```{r}
+sessions_in_day_parts_data_with_all_names_df %>% 
+  filter(uid.y == "Deborah_Nichols") %>% 
+  select(`Session Id`, uid.y, day_part_from_while.y )
+```
+
+She's ok, great!
+
+2. Leah McCurdy and session 3109, but what is the conflict exactly? Not on Sat morning from 9-11 am.
+
+```{r}
+Sa_morning_names %>% 
+  filter(uid.y == "Leah_McCurdy")
+
+# when is she?
+sessions_in_day_parts_data_with_all_names_df %>% 
+  filter(uid.y == "Leah_McCurdy") %>% 
+  select(day_part_from_while.y)
+```
+
+She's ok, oon Fr-morning
+
+3. Session 2929 should not be on "Thurs PM, Thurs EVE, Fri PM, SAT AM, SAT PM". When do we have it?
+
+```{r}
+sessions_in_day_parts_data_with_all_names_df %>% 
+  filter(`Session Id` == 2929) %>% 
+  select(`Session Id`, uid.y, day_part_from_while.y )
+```
+
+This is a problem, we put this session in Th-afternoon. 
+
+Can we tack it onto Su-morning, right at the end? According to the results of our while-loop, we have many hours spare on Su-morning:
+
+```{r}
+total_cap
+```
+
+Let's double-check what we've got after the multiple knapsack work:
+
+```{r}
+day_parts_filled_hours <- 
+sessions_in_day_parts_data_with_all_names_df %>% 
+  group_by(`Session Id`) %>% 
+  slice(1) %>% 
+  group_by(day_part_from_while.y) %>% 
+  summarise(hours_in_day_part = sum(session_time_allowed.y ))
+```
+
+It's the same. So how many spare hours do we have on Su-morning?
+
+```{r}
+Su_morning_hours_available <- 
+total_cap %>% 
+  filter(day_part == "Su-morning") %>% 
+  select(total_capacity) %>% 
+  pull()
+
+Su_morning_hours_filled <- 
+  day_parts_filled_hours %>% 
+  filter(day_part_from_while.y == "Su-morning") %>% 
+  select(hours_in_day_part) %>% 
+  pull()
+
+Su_morning_spare_hours <- 
+  Su_morning_hours_available - Su_morning_hours_filled
+
+```
+
+We have `r Su_morning_spare_hours` hours unused on Sunday morning. Heaps of space. So let's move Session 2929 to Sunday morning:
+
+```{r}
+sessions_in_day_parts_data_with_all_names_df <- 
+sessions_in_day_parts_data_with_all_names_df %>% 
+  mutate(day_part_from_while.y = if_else(`Session Id` == 2929, 
+                                         "Su-morning", 
+                                         day_part_from_while.y))
+
+# check it
+check_session_2929_to_sunday_morning <- 
+sessions_in_day_parts_data_with_all_names_df %>% 
+  filter(`Session Id` == 2929) %>% 
+  select(day_part_from_while.y) %>% 
+  unique()
+
+```
+
 ## Summary
 
-Now we've got all the organised sessions scheduled into day-parts with no clashes.
+Now we've got all the organised sessions scheduled into slots and day-parts with no clashes, and no conflicts with requested times. 
+
+```{r}
+# this is our final result
+write_csv(sessions_in_day_parts_data_with_all_names_df,
+          "../data/derived_data/sessions_in_day_parts_data_with_all_names_df.csv")
+
+# can we make a visual schedule?
+x <- 
+sessions_in_day_parts_data_with_all_names_df %>% 
+  group_by(day_part_from_while.y, computed_slot) %>% 
+  summarise(sessions_for_plot = toString(unique(`Session Id`)))
+
+# put day-slots in order
+x$day_part_from_while.y <- factor(x$day_part_from_while.y, 
+                                  levels = total_cap$day_part)
+
+ggplot(x,
+       aes(day_part_from_while.y,
+           computed_slot)) +
+ geom_tile(colour = "black",
+           fill = "white") +
+  geom_text(aes(label = sessions_for_plot), 
+                  size = 3) +
+    scale_y_continuous(breaks = 0:max(x$computed_slot)) +
+  theme_bw() +
+  xlab("") +
+  ylab("Room-ish") +
+  ggtitle("Visual schedule for SAA2019 conference non-poster sessions",
+          subtitle = "The numbers on the plot are the Session Ids. \n We can think of  each row as equivalent to a room at the conference venue. ")
+
+ggsave("../figures/visual_schedule_for_saa2019_conference_non_poster_sessions.png")
+  
+```
+
 
 What do we stil need to do?
 
@@ -473,8 +1010,7 @@ devtools::session_info()
 The current Git commit details are:
 
 ```{r}
-# what commit is this file at? You may need to change the path value
-# if your Rmd is not in analysis/paper/
+# what commit is this file at? 
 git2r::repository("../..")
 ```
 

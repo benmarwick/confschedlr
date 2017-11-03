@@ -993,9 +993,7 @@ ggsave("../figures/visual_schedule_for_saa2019_conference_non_poster_sessions.pn
 
 What do we stil need to do?
 
-- Put the organised sessions into room slots (though not specific rooms). For example, if Thurs morning has 36 room slots, we need to distribute the sessions assigned to Thurs monrning accross these slots. This is where we can use the multiple knapsack algorithm, so that we can put two 2 hour sessions into one 4 hour slot for a room.    
-- Put the general sessions and posters into day-parts and rooms with no clashes    
-- Deal with the special requests for certain people to be scheduled at certain times. 
+- Posters 
 
 
 ### Colophon

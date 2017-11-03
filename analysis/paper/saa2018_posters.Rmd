@@ -1,0 +1,123 @@
+---
+title: "Notes on scheduling the SAA2019 meeting"
+author:
+  - Ben Marwick
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  tint::tintHtml: 
+     self_contained: TRUE
+     df_print: paged
+---
+
+
+<!-- This is the format for text comments that will be ignored during renderings. Do not put R code in these comments because it will not be ignored. -->
+
+```{r, setup, echo = FALSE, warning = FALSE, message = FALSE,}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  echo = FALSE,
+  comment = "#>",
+  fig.path = "figures"
+)
+
+library(saaabstracts)
+library(readxl)
+library(tidyverse)
+library(knitr)
+library(glue)
+
+```
+## Introduction
+
+
+
+## How many sessions do we have?
+
+```{r}
+library(readxl)
+
+gen_poster_session_posters <- read_excel("../data/raw_data/02 - poster_sessions_FINAL(oct31).xlsx")
+
+org_poster_sessions_only <- read_excel("../data/raw_data/02 - poster_sessions_FINAL(oct31).xlsx", sheet = "ORGANIZED_POSTER_SESSION_SIZES")
+
+after_hours_poster_sessions_only <- 
+  read_excel("../data/raw_data/02 - poster_sessions_FINAL(oct31).xlsx", 
+             sheet = "AFTER_HOURS") %>% 
+  slice(1:9)
+
+# In here we have org and after hours posters
+org_and_after_hours_posters_individual <- 
+  read_excel("../data/raw_data/Organized Session Abstracts_2018_AB.xlsx") %>% 
+  filter(`Session Type` == "Poster Symposium")
+
+# how many unique general sessions? 
+n_gen_poster_sessions <- length(unique(gen_poster_sessions$cuts))
+
+# how many unique organised sessions? 
+n_org_poster_sessions <- nrow((org_poster_sessions))
+
+# how many unique after hours sessions? 
+n_ah_poster_sessions <- nrow(after_hours_poster_sessions_only)
+
+# total number of sessions
+total_number_of_sessions <-  n_gen_poster_sessions + n_org_poster_sessions + n_ah_poster_sessions
+
+# combine organised and general sessions
+gen_poster_session_posters$session <- gen_poster_session_posters$cuts
+
+org_poster_session_posters <- 
+  org_and_after_hours_posters_individual %>% 
+  mutate(session = `Session Id`) %>% 
+  filter(session %in% org_poster_sessions_only$ID) 
+  
+common_cols <- intersect(names(gen_poster_session_posters),  names(org_poster_session_posters))
+
+gen_poster_session_posters <- 
+  gen_poster_session_posters %>% 
+  select(common_cols)
+
+org_poster_session_posters <- 
+  org_poster_session_posters %>% 
+  select(common_cols)
+
+gen_and_org_poster_session_posters <- 
+  bind_rows(gen_poster_session_posters, 
+            org_poster_session_posters)
+
+```
+
+We have information about how many posters can go into each session
+
+```{r}
+# poster session durations
+poster_session_durations <- 
+  read_excel("../data/raw_data/saa all organizedsession_timeslotABv3.xls", 
+             sheet = "Posters1")
+```
+
+
+
+
+What do we stil need to do?
+
+- Posters 
+
+
+### Colophon
+
+This report was generated on `r Sys.time()` using the following computational environment and dependencies: 
+
+```{r colophon, cache = FALSE}
+# which R packages and versions?
+devtools::session_info()
+```
+
+The current Git commit details are:
+
+```{r}
+# what commit is this file at? 
+git2r::repository("../..")
+```
+

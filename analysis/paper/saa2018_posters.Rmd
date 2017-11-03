@@ -95,6 +95,24 @@ We have information about how many posters can go into each session
 poster_session_durations <- 
   read_excel("../data/raw_data/saa all organizedsession_timeslotABv3.xls", 
              sheet = "Posters1")
+# add day-part to compare with papers
+poster_session_durations <- 
+  poster_session_durations %>% 
+  mutate(start = as.character(start)) %>% 
+  mutate(end = as.character(end)) %>% 
+  mutate(day_part = case_when(
+    start == "1899-12-31 08:00:00" ~ "morning",
+    start == "1899-12-31 10:30:00" ~ "morning",
+    start == "1899-12-31 14:00:00" ~ "afternoon",
+    start == "1899-12-31 17:00:00" ~ "evening"
+  ))
+```
+
+We want to avoid people giving a poster and a talk at the same time, so we need to check with the paper schedule:
+
+```{r}
+sessions_in_day_parts_data_with_all_names_df <- 
+  read_csv("../data/derived_data/sessions_in_day_parts_data_with_all_names_df.csv")
 ```
 
 

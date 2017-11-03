@@ -987,11 +987,30 @@ ggplot(x,
           subtitle = "The numbers on the plot are the Session Ids. \n We can think of  each row as equivalent to a room at the conference venue. ")
 
 ggsave("../figures/visual_schedule_for_saa2019_conference_non_poster_sessions.png")
-  
+
+# make a spreadsheet that looks like this plot
+
+library(tidyr)
+visual_schedule_plot_as_spreadsheet <- 
+  x %>% 
+  select(day_part_from_while.y, 
+         sessions_for_plot, 
+         computed_slot) %>% 
+  distinct(sessions_for_plot, 
+           .keep_all = TRUE) %>% 
+  spread(day_part_from_while.y, 
+         sessions_for_plot, 
+         fill = "") 
+
+write_csv(visual_schedule_plot_as_spreadsheet,
+          "../data/derived_data/visual_schedule_plot_as_spreadsheet.csv")
+
 ```
 
 
 What do we stil need to do?
+
+- Many sessions of the same topic are put in the same day-part, which is undesirable. We may want to consider changing the while-loop to fill each day-part with one session per day-part, rather than filling a day-part, then moving to the next day-part, etc. 
 
 - Posters 
 

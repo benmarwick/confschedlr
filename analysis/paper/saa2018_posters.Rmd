@@ -31,8 +31,6 @@ library(glue)
 ```
 ## Introduction
 
-
-
 ## How many sessions do we have?
 
 ```{r}
@@ -49,9 +47,19 @@ after_hours_poster_sessions_only <-
   mutate(`Session Id` = as.numeric(gsub("\\D", "", ID)))
 
 # In here we have org and after hours posters
+
+all_abstracts  <-  read_excel("../data/raw_data/Organized Session Abstracts_2018_AB.xlsx") 
+
 org_and_after_hours_posters_individual <- 
-  read_excel("../data/raw_data/Organized Session Abstracts_2018_AB.xlsx") %>% 
-  filter(`Session Type` == "Poster Symposium")
+all_abstracts %>% 
+  filter(`Session Type` == "Poster Symposium") %>% 
+  filter(Role == "Presenter")
+
+gen_and_org_poster_sessions_only <- 
+all_abstracts %>% 
+  filter(`Session Type` == "Poster Symposium") %>% 
+  filter(Role == "Chair (Primary)") 
+  
 
 # how many unique general sessions? 
 n_gen_poster_sessions <- length(unique(gen_poster_session_posters$cuts))
@@ -349,6 +357,12 @@ Seems that we have too many posters for the available space. Let's double-check:
 all_of_the_day_parts %>% 
   distinct()
 
+# why is each poster in each day-part?
+all_of_the_day_parts %>% 
+ arrange(uid) %>% View
+
+
+# how many abstracts
 posters_with_abstract_ids <- 
 all_of_the_day_parts %>% 
   filter(!is.na(`Abstract Id`)) %>% 

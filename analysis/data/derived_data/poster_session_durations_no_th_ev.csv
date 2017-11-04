@@ -1,0 +1,7 @@
+"","day_part","n_max","numbers_of_posters","n_posters","n_sessions","c_sessions","c_posters"
+"1","Fr-morning",120,0,119,13,13,119
+"2","Sa-morning",120,0,115,11,24,234
+"3","Th-morning",120,0,120,14,38,354
+"4","Fr-afternoon",60,0,64,8,46,418
+"5","Sa-afternoon",60,0,54,6,52,472
+"6","Th-afternoon",60,0,59,6,58,531

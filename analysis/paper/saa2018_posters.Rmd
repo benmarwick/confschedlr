@@ -33,20 +33,31 @@ library(glue)
 
 ## How many sessions do we have?
 
+We can combine general and organised sessions, for the purpose of scheduling. BUt we have to get the after hours sessions and put them aside. 
+
 ```{r}
 library(readxl)
 
-gen_poster_session_posters <- read_excel("../data/raw_data/02 - poster_sessions_FINAL(oct31).xlsx")
+# Here we get all the general session posters
+# session number is cuts column
+gen_poster_session_posters_individual <- read_excel("../data/raw_data/02 - poster_sessions_FINAL(oct31).xlsx")
+gen_poster_session_posters_individual$`Session Id` <- gen_poster_session_posters_individual$cuts
+# 422 posters in the general session
 
-org_poster_sessions_only <- read_excel("../data/raw_data/02 - poster_sessions_FINAL(oct31).xlsx", sheet = "ORGANIZED_POSTER_SESSION_SIZES")
+# grab the two general sessions from the 
+# ah posters from the other sheet (very inconvenient!)
+ah_poster_session_posters_individual <- read_excel("../data/raw_data/02 - poster_sessions_FINAL(oct31).xlsx", sheet = "AFTER_HOURS", skip = 11)
+ah_poster_session_posters_individual$`Session Id` <- ah_poster_session_posters_individual$cuts
 
-after_hours_poster_sessions_only <- 
-  read_excel("../data/raw_data/02 - poster_sessions_FINAL(oct31).xlsx", 
-             sheet = "AFTER_HOURS") %>% 
-  slice(1:9) %>% 
-  mutate(`Session Id` = as.numeric(gsub("\\D", "", ID)))
+ah_poster_session_posters_individual <- 
+ah_poster_session_posters_individual[, names(ah_poster_session_posters_individual) %in% names(gen_poster_session_posters_individual)  ]
+
+gen_poster_session_posters_individual <- 
+  rbind(gen_poster_session_posters_individual,
+        ah_poster_session_posters_individual)
 
 # In here we have org and after hours posters
+# but not general posters
 
 all_abstracts  <-  read_excel("../data/raw_data/Organized Session Abstracts_2018_AB.xlsx") 
 
@@ -54,63 +65,60 @@ org_and_after_hours_posters_individual <-
 all_abstracts %>% 
   filter(`Session Type` == "Poster Symposium") %>% 
   filter(Role == "Presenter")
+# 196 posters in org + ah sessions
 
-gen_and_org_poster_sessions_only <- 
-all_abstracts %>% 
-  filter(`Session Type` == "Poster Symposium") %>% 
-  filter(Role == "Chair (Primary)") 
-  
+# combine general, organised and after hours individual posters
+common_names <- 
+names(gen_poster_session_posters_individual)[names(gen_poster_session_posters_individual) %in% names(org_and_after_hours_posters_individual)]
 
-# how many unique general sessions? 
-n_gen_poster_sessions <- length(unique(gen_poster_session_posters$cuts))
+gen_poster_session_posters_individual <- 
+  gen_poster_session_posters_individual %>% 
+  select(common_names)
 
-# how many unique organised sessions? 
-n_org_poster_sessions <- nrow((org_poster_sessions_only))
-
-# how many unique after hours sessions? 
-n_ah_poster_sessions <- nrow(after_hours_poster_sessions_only)
-
-# total number of sessions
-total_number_of_sessions <-  n_gen_poster_sessions + n_org_poster_sessions + n_ah_poster_sessions
-
-# combine organised and general sessions
-gen_poster_session_posters$session <- gen_poster_session_posters$cuts
-
-org_poster_session_posters <- 
+org_and_after_hours_posters_individual <- 
   org_and_after_hours_posters_individual %>% 
-  mutate(session = `Session Id`) %>% 
-  filter(session %in% org_poster_sessions_only$ID) 
-  
-common_cols <- intersect(names(gen_poster_session_posters),  names(org_poster_session_posters))
+    select(common_names)
 
-gen_poster_session_posters <- 
-  gen_poster_session_posters %>% 
-  select(common_cols)
+all_posters_individual <- 
+  bind_rows(gen_poster_session_posters_individual,
+            org_and_after_hours_posters_individual) %>% 
+  filter(!is.na(Title))
+```
 
-org_poster_session_posters <- 
-  org_poster_session_posters %>% 
-  select(common_cols)
+We have `r nrow(all_posters_individual)` posters altogether, with `r nrow(gen_poster_session_posters_individual)` in the general session, and `r nrow(org_and_after_hours_posters_individual)` in the organised sessions (including after hours posters).
 
-gen_and_org_poster_session_posters <- 
-  bind_rows(gen_poster_session_posters, 
-            org_poster_session_posters)
+Let's remove the after hours sessions from all the posters, since we know they will be assigned to Th-evening:
 
-# check the number of gen and org poster sessions:
-gen_and_org_poster_sessions_only <- 
-  gen_and_org_poster_session_posters %>% 
-  group_by(session) %>% 
-  slice(1)
+```{r}
+# how many ah sessions?
+after_hours_poster_sessions_only <- 
+  read_excel("../data/raw_data/02 - poster_sessions_FINAL(oct31).xlsx", 
+             sheet = "AFTER_HOURS") %>% 
+  slice(1:9) %>% 
+  mutate(`Session Id` = as.numeric(gsub("\\D", "", ID)))
 
-after_hours_poster_sessions_all_posters <- 
-  org_and_after_hours_posters_individual %>% 
+# how many ah posters?
+after_hours_poster_sessions_posters_individual <- 
+  all_posters_individual %>%
   filter(`Session Id` %in% after_hours_poster_sessions_only$`Session Id`) %>% 
   mutate(poster_session_time = "Th-evening")
 
+# remove these from all posters
+all_posters_individual_no_ah <- 
+  all_posters_individual %>% 
+  filter(!`Session Id` %in% after_hours_poster_sessions_only$`Session Id`)
+
+# put out the after hours sessions and posters in a CSV
+write_csv(after_hours_poster_sessions_posters_individual,
+          "../data/derived_data/after_hours_poster_sessions_all_posters.csv")
+
+# Make sure that we don't have the Thu-evening posters in the remaining posterings
+all_posters_individual_no_ah$`Session Id`[all_posters_individual_no_ah$`Session Id` %in% after_hours_poster_sessions_posters_individual$`Session Id`] 
 ```
 
-We have `r nrow(n_ah_poster_sessions)` sessions of after-hours posters, for a total of `r nrow(after_hours_poster_sessions_all_posters)` posters.
+We have `r length(unique(after_hours_poster_sessions_only$'Session Id'))` sessions of after-hours posters, with a total of `r nrow(after_hours_poster_sessions_posters_individual)` posters. This leaves `r nrow(all_posters_individual_no_ah)` remaning to allocate in the day-parts.
 
-We have `r nrow(gen_and_org_poster_sessions_only)` sessions of general and organised session posters, for a total of `r nrow(gen_and_org_poster_session_posters)` posters.
+100 posters are permitted in the after-hours session. We have `r nrow(after_hours_poster_sessions_posters_individual)` posters in the after hours session. That's `r ifelse(nrow(after_hours_poster_sessions_posters_individual) <= 100, "great", "not ideal")`.
 
 We have from the SAA information about how many posters can go into each session
 
@@ -132,30 +140,31 @@ poster_session_durations <-
     start == "1899-12-31 14:00:00" ~ "afternoon",
     start == "1899-12-31 17:00:00" ~ "evening"
   )) %>% 
+  mutate(start = substr(start, 11, nchar(start))) %>% 
+  mutate(end = substr(end, 11, nchar(end))) %>% 
   mutate(day_part = glue('{stri_trans_totitle(substr(day, 1, 2))}-{day_part}'))
 
 poster_session_durations
+
+diff_between_need_and_have <- nrow(all_posters_individual_no_ah) - sum(poster_session_durations$'N max')
 ```
 
-There are spaces for a total of `r sum(poster_session_durations$'N max')` posters. We have received `r nrow(gen_and_org_poster_session_posters)` poster submissions. So we have `r nrow(gen_and_org_poster_session_posters) - sum(poster_session_durations$'N max')` more posters than available spaces. 
+There are spaces for a total of `r sum(poster_session_durations$'N max')` posters. We have received `r nrow(all_posters_individual_no_ah)` poster submissions. So we have `r nrow(all_posters_individual_no_ah) - sum(poster_session_durations$'N max')` `r ifelse(diff_between_need_and_have < 0, glue('{abs(diff_between_need_and_have)} free spaces'), glue('{abs(diff_between_need_and_have)} more posters than available spaces'))`. 
 
-Thu-evening is the 'after hours' session, so that's already got the after-hours poster sessions in there. We'll just omit it from the following, and we don't need to worry about clashes because it's after all the papers. 100 posters are permitted in the after-hours session. 
+Thu-evening is the 'after hours' session, so that's already got the after-hours poster sessions in there. We'll just omit it from the following available schedules, and we don't need to worry about clashes because it's after all the papers. 
+
+And we'll combine day-parts that are in the same paper day-part, which will make it simper for avoiding clashes.
 
 ```{r}
 # exclude Thurs evening from now on
-poster_session_durations <- 
+poster_session_durations_no_th_ev <- 
   poster_session_durations %>% 
-  filter(day_part != "Th-evening")
+  filter(day_part != "Th-evening") %>% 
+  group_by(day_part) %>% 
+  summarise(n_max = sum(`N max`) )
 
-# put out the after hours sessions and posters in a CSV
-write_csv(after_hours_poster_sessions_all_posters,
-          "../data/derived_data/after_hours_poster_sessions_all_posters.csv")
-
-# Make sure that we don't have the Thu-evening posters in the remaining posterings
-gen_and_org_poster_sessions_only$session[gen_and_org_poster_sessions_only$session %in% after_hours_poster_sessions_all_posters$`Session Id`] 
+poster_session_durations_no_th_ev
 ```
-
-We have `r nrow(after_hours_poster_sessions_all_posters)` posters in the after hours session. That's `r ifelse(nrow(after_hours_poster_sessions_all_posters) <= 100, "great", "not ideal")`.
 
 We want to avoid people giving a poster and a talk at the same time, so we need to check with the paper schedule:
 
@@ -167,60 +176,64 @@ sessions_in_day_parts_data_with_all_names_df <-
 Now we need to put the poster sessions into the remaining slots while checking to see if one of the poster authors is already scheduled to give a paper.
 
 ```{r}
-# prepare sessions we have
-  poster_session_durations_summary <- 
-    poster_session_durations %>% 
-    group_by(day_part) %>% 
-    summarise(`N max` = sum(`N max`))
-  
-  # make a unique value for names
-  gen_and_org_poster_sessions_only <- 
-  gen_and_org_poster_sessions_only %>% 
+# to avoid overfilling day-parts
+buffer <-7 # is the largest to avoid overfill
+
+# day-parts to fill
+ poster_session_durations_no_th_ev <- 
+   poster_session_durations_no_th_ev %>% 
+   arrange(desc(n_max))
+
+# make a unique value for names for all posters
+all_posters_individual_no_ah <- 
+  all_posters_individual_no_ah %>% 
     mutate(uid = glue('{`First Name`}_{`Last Name`}'))
+
+# get table of session id's only 
+poster_session_ids <- 
+unique(all_posters_individual_no_ah$`Session Id`) 
   
-  gen_and_org_poster_session_posters <- 
-    gen_and_org_poster_session_posters %>% 
-    mutate(uid = glue('{`First Name`}_{`Last Name`}'))
-  
-  # we're going to change these
-  gen_and_org_poster_sessions_only_tmp <- gen_and_org_poster_sessions_only
+# we're going to change these
+  all_posters_individual_no_ah_tmp <- all_posters_individual_no_ah
   container_for_this_day_part <- 0
-  poster_session_durations_summary$numbers_of_posters <- 0
-  poster_session_durations_summary$n_posters <- 0
-  poster_session_durations_summary$n_sessions <- 0
-  poster_session_durations_summary$c_sessions <- 0
-  poster_session_durations_summary$c_posters <- 0
+  poster_session_durations_no_th_ev$numbers_of_posters <- 0
+  poster_session_durations_no_th_ev$n_posters <- 0
+  poster_session_durations_no_th_ev$n_sessions <- 0
+  poster_session_durations_no_th_ev$c_sessions <- 0
+  poster_session_durations_no_th_ev$c_posters <- 0
   all_of_the_day_parts <- 0
   i <- 1
 
 # loop over each day-slot available for poster sessions
-for(i in seq_len(nrow(poster_session_durations_summary))) {
+# i is each day-part
+for(i in seq_len(nrow(poster_session_durations_no_th_ev))) {
   
     # stop loop gracefully when we have assigned all people to day-parts
-  if (nrow(gen_and_org_poster_sessions_only_tmp) == 0){ break }
+  if (nrow(all_posters_individual_no_ah_tmp) == 0){ break }
   
     # how many rows (posters) to we have remaning to allocate to a day-part?
-  print(glue('number of poster sessions remaining to classify is {nrow(gen_and_org_poster_sessions_only_tmp)}'))
+  print(glue('number of poster sessions remaining to classify is {nrow(all_posters_individual_no_ah_tmp)}'))
   
-  # need a buffer
-  buffer <- 3
-  target_capacity <- poster_session_durations_summary$`N max`[i] - buffer
+  # need a buffer to avoid overfilling day-parts
+  target_capacity <- poster_session_durations_no_th_ev$n_max[i] - buffer
   
   # prepare variables for the next round, just to be sure
   cumulative_number_of_posters <- 0
   container_for_this_day_part <- 0
   this_session_posters <- 0
+  # j is each poster session
   j <- 1
   
-  while(cumulative_number_of_posters <= target_capacity & j <= nrow(gen_and_org_poster_sessions_only_tmp)){
+  while(cumulative_number_of_posters <= target_capacity & 
+        j <= length(poster_session_ids)) {
   
   # get a session 
-  this_session <- gen_and_org_poster_sessions_only[j, ]
+  this_session <- poster_session_ids[j]
   
   # get names for all the people in this poster session
   this_session_posters <- 
-    gen_and_org_poster_session_posters %>% 
-      filter(session == this_session$session)
+    all_posters_individual_no_ah_tmp %>% 
+      filter(`Session Id` == this_session)
   
 #-------------------------------------------------------------------  
   # check to see if these names are already in this day-part
@@ -248,7 +261,7 @@ for(i in seq_len(nrow(poster_session_durations_summary))) {
       # check to see if papers for this day-part already have the name in it
       names_papers_in_this_day_part <- 
         sessions_in_day_parts_data_with_all_names_df %>% 
-        filter(day_part_from_while.y == poster_session_durations_summary[i,]$day_part) %>% 
+        filter(day_part_from_while.y == poster_session_durations_no_th_ev[i,]$day_part) %>% 
         pull(uid.y)
       
       names_already_in2 <- sum(this_session_posters$uid %in% names_papers_in_this_day_part)
@@ -287,22 +300,22 @@ for(i in seq_len(nrow(poster_session_durations_summary))) {
   # compute the number of posters we've added to this day-part
   # by counting the abstract Id, because this excludes the session chairs
     cumulative_number_of_posters <- 
-      length(!is.na(container_for_this_day_part$`Abstract Id`))
+    nrow(container_for_this_day_part)
   
    # store this result
-    poster_session_durations_summary$numbers_of_posters[i] <- cumulative_number_of_posters
+    poster_session_durations_no_th_ev$n_posters[i] <- cumulative_number_of_posters
     
     print(glue('cumulative number of posters: {cumulative_number_of_posters}, j = {j}, i = {i}'))
   
   # go to next session
   j <- j + 1
-  }
+    }
   # end of while loop
   
    # add an identifier so we can see where we have assigned each session so far
  container_for_this_day_part_with_session_from_while <- 
    container_for_this_day_part %>% 
-   mutate(day_part_from_while  = as.character(poster_session_durations_summary$day_part[i]))
+   mutate(day_part_from_while  = as.character(poster_session_durations_no_th_ev$day_part[i]))
  
  # bind rows to previous day-parts we might have done
   if (i == 1) {
@@ -317,14 +330,12 @@ for(i in seq_len(nrow(poster_session_durations_summary))) {
                                       all_of_the_day_parts)
   }
  
-  poster_session_durations_summary$n_posters[i] <- length(unique(container_for_this_day_part_with_session_from_while$`Abstract Id`))
-  
- poster_session_durations_summary$n_sessions[i] <- length(unique(container_for_this_day_part_with_session_from_while$session))
+ poster_session_durations_no_th_ev$n_sessions[i] <- length(unique(container_for_this_day_part_with_session_from_while$`Session Id`))
  
- poster_session_durations_summary$c_sessions[i] <-  sum(poster_session_durations_summary$n_sessions)
- poster_session_durations_summary$c_posters[i] <-  sum(poster_session_durations_summary$n_posters)
+ poster_session_durations_no_th_ev$c_sessions[i] <-  sum(poster_session_durations_no_th_ev$n_sessions)
+ poster_session_durations_no_th_ev$c_posters[i] <-  sum(poster_session_durations_no_th_ev$n_posters)
 
- print(poster_session_durations_summary %>% select(`N max`, 
+ print(poster_session_durations_no_th_ev %>% select(n_max, 
                                                    day_part,
                                                    n_posters,
                                                    n_sessions, 
@@ -336,9 +347,9 @@ for(i in seq_len(nrow(poster_session_durations_summary))) {
  # so let's update our big table of posters, and drop the session that 
  # we've already got in the day-part
 
-gen_and_org_poster_sessions_only_tmp <-  
-   gen_and_org_poster_sessions_only_tmp %>% 
-   filter(! session %in% unique(container_for_this_day_part$session))
+all_posters_individual_no_ah_tmp <-  
+   all_posters_individual_no_ah_tmp %>% 
+   filter(! `Session Id` %in% unique(container_for_this_day_part$`Session Id`))
 
 }
 # end of for loop
@@ -347,12 +358,45 @@ gen_and_org_poster_sessions_only_tmp <-
 write.csv(all_of_the_day_parts, 
           "../data/derived_data/posters_output_of_session_classification.csv")
 
-write.csv(poster_session_durations_summary, "../data/derived_data/poster_session_durations.csv")
+write.csv(poster_session_durations_no_th_ev, "../data/derived_data/poster_session_durations_no_th_ev.csv")
 ```
 
-Seems that we have too many posters for the available space. Let's double-check:
+We have from the SAA spaces for `r sum(poster_session_durations_no_th_ev$n_max)` posters. And we have `r sum(poster_session_durations_no_th_ev$c_posters)` 
+
+It's tricky to allocate the posters so they don't exceed the number allowed in each day part.
 
 ```{r}
+# we have 532 posters not in ah
+x1 <- 
+all_posters_individual_no_ah
+
+x2 <- 
+all_of_the_day_parts 
+
+# what sessions are not in there?
+session_output <- 
+x2 %>% 
+  group_by(`Session Id`) %>% 
+  pull(`Session Id`) %>% 
+  unique
+
+session_input <- 
+  x1 %>% 
+  group_by(`Session Id`) %>% 
+  pull(`Session Id`) %>% 
+  unique
+
+setdiff(session_input, session_output)
+
+x1 %>% 
+  filter(is.na(Title))
+  
+  
+
+
+
+
+# what are in the output of this loop that is not in the input?
 # duplicates?
 all_of_the_day_parts %>% 
   distinct()

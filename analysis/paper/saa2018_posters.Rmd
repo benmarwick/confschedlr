@@ -93,9 +93,18 @@ gen_and_org_poster_sessions_only <-
   group_by(session) %>% 
   slice(1)
 
+after_hours_poster_sessions_all_posters <- 
+  org_and_after_hours_posters_individual %>% 
+  filter(`Session Id` %in% after_hours_poster_sessions_only$`Session Id`) %>% 
+  mutate(poster_session_time = "Th-evening")
+
 ```
 
-We have information about how many posters can go into each session
+We have `r nrow(n_ah_poster_sessions)` sessions of after-hours posters, for a total of `r nrow(after_hours_poster_sessions_all_posters)` posters.
+
+We have `r nrow(gen_and_org_poster_sessions_only)` sessions of general and organised session posters, for a total of `r nrow(gen_and_org_poster_session_posters)` posters.
+
+We have from the SAA information about how many posters can go into each session
 
 ```{r}
 # poster session durations
@@ -120,6 +129,8 @@ poster_session_durations <-
 poster_session_durations
 ```
 
+There are spaces for a total of `r sum(poster_session_durations$'N max')` posters. We have received `r nrow(gen_and_org_poster_session_posters)` poster submissions. So we have `r nrow(gen_and_org_poster_session_posters) - sum(poster_session_durations$'N max')` more posters than available spaces. 
+
 Thu-evening is the 'after hours' session, so that's already got the after-hours poster sessions in there. We'll just omit it from the following, and we don't need to worry about clashes because it's after all the papers. 100 posters are permitted in the after-hours session. 
 
 ```{r}
@@ -129,11 +140,6 @@ poster_session_durations <-
   filter(day_part != "Th-evening")
 
 # put out the after hours sessions and posters in a CSV
-after_hours_poster_sessions_all_posters <- 
-  org_and_after_hours_posters_individual %>% 
-  filter(`Session Id` %in% after_hours_poster_sessions_only$`Session Id`) %>% 
-  mutate(poster_session_time = "Th-evening")
-
 write_csv(after_hours_poster_sessions_all_posters,
           "../data/derived_data/after_hours_poster_sessions_all_posters.csv")
 
@@ -175,6 +181,8 @@ Now we need to put the poster sessions into the remaining slots while checking t
   poster_session_durations_summary$n_posters <- 0
   poster_session_durations_summary$n_sessions <- 0
   poster_session_durations_summary$c_sessions <- 0
+  poster_session_durations_summary$c_posters <- 0
+  all_of_the_day_parts <- 0
   i <- 1
 
 # loop over each day-slot available for poster sessions
@@ -187,7 +195,7 @@ for(i in seq_len(nrow(poster_session_durations_summary))) {
   print(glue('number of poster sessions remaining to classify is {nrow(gen_and_org_poster_sessions_only_tmp)}'))
   
   # need a buffer
-  buffer <- 10
+  buffer <- 3
   target_capacity <- poster_session_durations_summary$`N max`[i] - buffer
   
   # prepare variables for the next round, just to be sure
@@ -236,9 +244,6 @@ for(i in seq_len(nrow(poster_session_durations_summary))) {
         pull(uid.y)
       
       names_already_in2 <- sum(this_session_posters$uid %in% names_papers_in_this_day_part)
-      
-      #  what if we remove the condition that there shoudl not be a clash with papers?
-      names_already_in2 <- 0
   
   }
 
@@ -309,12 +314,14 @@ for(i in seq_len(nrow(poster_session_durations_summary))) {
  poster_session_durations_summary$n_sessions[i] <- length(unique(container_for_this_day_part_with_session_from_while$session))
  
  poster_session_durations_summary$c_sessions[i] <-  sum(poster_session_durations_summary$n_sessions)
+ poster_session_durations_summary$c_posters[i] <-  sum(poster_session_durations_summary$n_posters)
 
  print(poster_session_durations_summary %>% select(`N max`, 
                                                    day_part,
                                                    n_posters,
                                                    n_sessions, 
-                                                   c_sessions))
+                                                   c_sessions,
+                                                   c_posters))
 
  # for the next day-part, we need to make sure
  # we don't add the same session twice to different day-parts
@@ -335,7 +342,23 @@ write.csv(all_of_the_day_parts,
 write.csv(poster_session_durations_summary, "../data/derived_data/poster_session_durations.csv")
 ```
 
+Seems that we have too many posters for the available space. Let's double-check:
 
+```{r}
+# duplicates?
+all_of_the_day_parts %>% 
+  distinct()
+
+posters_with_abstract_ids <- 
+all_of_the_day_parts %>% 
+  filter(!is.na(`Abstract Id`)) %>% 
+  group_by(day_part_from_while) %>% 
+  tally() %>% 
+  summarise(sum(n)) %>% 
+  pull()
+```
+
+We have `r posters_with_abstract_ids` posters with Abstract IDs (and so not chair/co-chairs). Compare to `r nrow(gen_and_org_poster_session_posters)` posters that we started with, and space available for `r sum(poster_session_durations$'N max')` posters. 
 
 
 What do we stil need to do?

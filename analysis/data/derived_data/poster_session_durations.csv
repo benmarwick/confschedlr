@@ -1,7 +1,7 @@
-"","day_part","N max","numbers_of_posters","n_posters","n_sessions","c_sessions"
-"1","Fr-afternoon",60,55,55,5,5
-"2","Fr-morning",120,111,111,12,17
-"3","Sa-afternoon",60,55,55,5,22
-"4","Sa-morning",120,111,111,12,34
-"5","Th-afternoon",60,55,55,5,39
-"6","Th-morning",120,111,111,12,51
+"","day_part","N max","numbers_of_posters","n_posters","n_sessions","c_sessions","c_posters"
+"1","Fr-afternoon",60,64,64,6,6,64
+"2","Fr-morning",120,119,119,13,19,183
+"3","Sa-afternoon",60,63,63,6,25,246
+"4","Sa-morning",120,119,119,13,38,365
+"5","Th-afternoon",60,64,64,6,44,429
+"6","Th-morning",120,123,123,14,58,552

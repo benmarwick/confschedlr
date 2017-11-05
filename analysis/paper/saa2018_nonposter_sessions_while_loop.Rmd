@@ -270,6 +270,8 @@ j <- 1
 while(cumulative_duration_of_sessions <= target_capacity & 
       j <= nrow(z7)) {
  
+    # randomly reorder the rows to see if we can solve a problem
+    # z7 <- z7[sample(nrow(z7)),]
     get_a_session <- z7[j, ]
     
     # get the names of all the people in this session...
@@ -419,6 +421,15 @@ all_of_the_day_parts <- readr::read_csv("../data/derived_data/output_of_day_part
 total_cap <- readr::read_csv("../data/derived_data/total_cap.csv")
 ```
 
+Did we get all sessions allocated to a day-part?
+
+```{r}
+sessions_we_missed <- 
+  setdiff(unique(all_nonposter_sessions$`Session Id`),
+          unique(all_of_the_day_parts$`Session Id`))
+```
+
+We missed `r length(sessions_we_missed)` sessions: `r sessions_we_missed`. 
 
 What did we get from this process? The table below shows each day-part, the number of hours that we have available to fill (`total_capacity`) and the number of hours that we have filled so far (`hours_of_sessions`):
 
@@ -872,7 +883,7 @@ sessions_in_day_parts_data_with_all_names_df %>%
   select(`Session Id`, uid.y, day_part_from_while.y )
 ```
 
-She's ok, great!
+Sa-afternoon and Sa-morning, she's ok, great!
 
 2. Leah McCurdy and session 3109, but what is the conflict exactly? Not on Sat morning from 9-11 am.
 
@@ -886,7 +897,7 @@ sessions_in_day_parts_data_with_all_names_df %>%
   select(day_part_from_while.y)
 ```
 
-She's ok, oon Fr-morning
+She's ok, on Fr-morning
 
 3. Session 2929 should not be on "Thurs PM, Thurs EVE, Fri PM, SAT AM, SAT PM". When do we have it?
 
@@ -935,14 +946,25 @@ Su_morning_spare_hours <-
 
 ```
 
-We have `r Su_morning_spare_hours` hours unused on Sunday morning. Heaps of space. So let's move Session 2929 to Sunday morning:
+We have `r Su_morning_spare_hours` hours unused on Sunday morning. Heaps of space. So let's move Session 2929 to Sunday morning. Don't forget to update the computed slot value so it gets it's own slot. 
 
 ```{r}
+
+# what is the max computed_slot for Su-morning?
+max_computed_slot_Su_morning <- 
+sessions_in_day_parts_data_with_all_names_df %>% 
+  filter(day_part_from_while.y == "Su-morning") %>% 
+  summarise(max_computed_slot_Su_morning = max(computed_slot)) %>% 
+  pull(max_computed_slot_Su_morning)
+
 sessions_in_day_parts_data_with_all_names_df <- 
 sessions_in_day_parts_data_with_all_names_df %>% 
   mutate(day_part_from_while.y = if_else(`Session Id` == 2929, 
                                          "Su-morning", 
-                                         day_part_from_while.y))
+                                         day_part_from_while.y)) %>% 
+  mutate(computed_slot = ifelse(`Session Id` == 2929, 
+                                         max_computed_slot_Su_morning + 1, 
+                                         computed_slot))
 
 # check it
 check_session_2929_to_sunday_morning <- 
@@ -950,6 +972,208 @@ sessions_in_day_parts_data_with_all_names_df %>%
   filter(`Session Id` == 2929) %>% 
   select(day_part_from_while.y) %>% 
   unique()
+
+# check to see if there are conflicts with names, should be 0
+sessions_in_day_parts_data_with_all_names_df %>% 
+  filter(day_part_from_while.y == "Su-morning") %>%
+  group_by(`Session Id`, uid.y)  %>% 
+  add_tally() %>% 
+  distinct(`Session Id`) %>% 
+  group_by(uid.y) %>% 
+  filter(n() > 1 )
+
+# how many slots in Sun?
+
+# available?
+total_cap #28 
+
+# used?
+sessions_in_day_parts_data_with_all_names_df %>% 
+  filter(day_part_from_while.y == "Su-morning") %>% 
+  distinct(computed_slot) %>% 
+  max()
+# 21
+
+```
+
+
+
+What do we stil need to do?
+
+- Many sessions of the same topic are put in the same day-part, which is undesirable. We may want to consider changing the while-loop to fill each day-part with one session per day-part, rather than filling a day-part, then moving to the next day-part, etc. 
+
+- AB says 
+
+>-  row 10 has session 2929 sharing with session 3165. But session 2929 needs 16 slots, which is 4 hours.    
+
+Problem was that I forgot to update the computed slot value. Fixed now. 
+
+>- Missing 3115, 3147, 3175, 3116, 3152, 3162    
+
+```{r}
+
+all_nonposter_sessions %>% 
+  filter(`Session Id` %in% c("3115", "3147", "3175", "3116", "3152", "3162")) 
+# yes, there
+
+# how many sessions""
+length(unique(all_nonposter_sessions$`Session Id`)) #  271
+
+all_nonposter_sessions_with_session_durations  %>% 
+  filter(`Session Id` %in% c("3115", "3147", "3175", "3116", "3152", "3162")) 
+# yes
+
+org_and_gen_session_durations  %>% 
+  filter(`Session Id` %in% c("3115", "3147", "3175", "3116", "3152", "3162")) 
+# yes
+
+all_of_the_day_parts  %>% 
+  filter(`Session Id` %in% c("3115", "3147", "3175", "3116", "3152", "3162")) 
+# not there
+
+sessions_in_day_parts_data_with_all_names_df %>% 
+  filter(`Session Id` %in% c("3115", "3147", "3175", "3116", "3152", "3162"))
+# not there
+
+# how many sessions?
+length(unique(sessions_in_day_parts_data_with_all_names_df$`Session Id`)) # 265
+
+
+# are these sessions very long?
+hours_of_missing_sessions <- 
+all_nonposter_sessions %>% 
+  filter(`Session Id` %in% c("3115", "3147", "3175", "3116", "3152", "3162"))  %>% 
+  group_by(`Session Id`) %>% 
+  tally() %>% 
+  mutate(minutes = n * 15) %>% 
+  mutate(hours = minutes / 60)
+# nope
+total_hours_missing <-  sum(hours_of_missing_sessions$hours)
+
+# what are they about?
+all_nonposter_sessions %>% 
+  filter(`Session Id` %in% missing_sessions) %>% 
+  select(Abstract, Title)
+# no title or abstracts!
+
+```
+
+
+```{r}
+
+# So, no idea what's going on with these. Let's see if there are any problems with putting them on Sunday
+missing_sessions_details <- 
+  all_nonposter_sessions %>% 
+  filter(`Session Id` %in% c("3115", "3147", "3175", "3116", "3152", "3162")) %>% 
+  mutate(uid.y = uid)
+  
+# are any people in more than one session Sunday? yes
+# what about all the day-parts with spare hours
+clashes_on_day_x <- function(day) {
+  sessions_in_day_parts_data_with_all_names_df %>% 
+ filter(day_part_from_while.y == day) %>% 
+  bind_rows(missing_sessions_details) %>% 
+  group_by(`Session Id`, uid.y)  %>% 
+  add_tally() %>% 
+  distinct(`Session Id`) %>% 
+  group_by(uid.y) %>% 
+  filter(n() > 1 )
+}
+
+total_cap_remaining <- 
+  total_cap %>% 
+  mutate(hours_unused =  total_capacity - hours_of_sessions) %>% 
+  select(day_part, hours_unused)
+
+
+day_with_spare_hours <- c("Fr-morning",
+                          "Fr-afternoon",
+                          "Sa-morning",
+                          "Sa-afternoon",
+                          "Su-morning")
+
+total_cap_remaining %>% 
+  mutate(clashes = map(day_part, clashes_on_day_x)) %>% 
+  mutate(n_clashes = map_int(.$clashes, ~nrow(.x)))
+
+# Looks like Th-morning has no clashes, double-check, should be 0
+
+ sessions_in_day_parts_data_with_all_names_df %>% 
+  filter(day_part_from_while.y ==  "Th-morning") %>% 
+  bind_rows(missing_sessions_details) %>% 
+  group_by(`Session Id`, uid.y)  %>% 
+  add_tally() %>% 
+  distinct(`Session Id`) %>% 
+  group_by(uid.y) %>% 
+  filter(n() > 1 )
+```
+
+Seems that Th-morning is a good place to put these missing sessions. So let's do that. We'll have to double-up in some slots
+
+```{r}
+# find out how many hours we have for each slot on th-morn
+slot_on_thu_morn_with_less_than_4_h <- 
+sessions_in_day_parts_data_with_all_names_df %>% 
+  filter(day_part_from_while.y == "Th-morning") %>% 
+  distinct(`Session Id`, .keep_all = TRUE) %>% 
+  group_by(computed_slot) %>% 
+  summarise(total_duration = sum(session_time_allowed.y)) %>% 
+  filter(total_duration < 4) %>% 
+  mutate(minutes = total_duration * 60) %>% 
+  mutate(minutes_free = (4*60) - minutes)
+
+# how many hours do we need to put in there?
+minutes_of_missing_sessions <- 
+  hours_of_missing_sessions$minutes
+
+# # what is the max computed_slot for Su-morning?
+# max_computed_slot_Th_morning <- 
+# sessions_in_day_parts_data_with_all_names_df %>% 
+#   filter(day_part_from_while.y == "Th-morning") %>% 
+#   summarise(max_computed_slot_Th_morning = max(computed_slot)) %>% 
+#   pull(max_computed_slot_Th_morning)
+# 
+# # assign missing sessions to Th morn, update slots
+# missing_sessions_details <- 
+# missing_sessions_details %>% 
+#   mutate(day_part_from_while.y = "Th-morning")
+# 
+# missing_sessions_details_indices  <- 
+# missing_sessions_details %>% 
+#   group_by(`Session Id`) %>% 
+#   group_indices()
+# 
+# # update computed slot
+# missing_sessions_details <- 
+#   missing_sessions_details %>% 
+#     mutate(computed_slot = missing_sessions_details_indices + max_computed_slot_Th_morning) 
+```
+
+We can't put them all on Th morn, there's not slot with enough free space to fit more than one of the missing sessions in
+
+```{r}
+  
+# # bind to rest of the papers
+# sessions_in_day_parts_data_with_all_names_df <- 
+#   bind_rows(sessions_in_day_parts_data_with_all_names_df ,
+#             missing_sessions_details)
+#             
+# 
+# # check it, should be Th-morning
+# check_missing_sessions_to_thu_morning <- 
+# sessions_in_day_parts_data_with_all_names_df %>% 
+#   filter(`Session Id` %in% missing_sessions) %>% 
+#   select(day_part_from_while.y) %>% 
+#   unique()
+# 
+# # check for conflicts with names
+#  sessions_in_day_parts_data_with_all_names_df %>% 
+#   filter(day_part_from_while.y ==  "Th-morning") %>% 
+#   group_by(`Session Id`, uid.y)  %>% 
+#   add_tally() %>% 
+#   distinct(`Session Id`) %>% 
+#   group_by(uid.y) %>% 
+#   filter(n() > 1 )
 
 ```
 
@@ -1006,13 +1230,6 @@ write_csv(visual_schedule_plot_as_spreadsheet,
           "../data/derived_data/visual_schedule_plot_as_spreadsheet.csv")
 
 ```
-
-
-What do we stil need to do?
-
-- Many sessions of the same topic are put in the same day-part, which is undesirable. We may want to consider changing the while-loop to fill each day-part with one session per day-part, rather than filling a day-part, then moving to the next day-part, etc. 
-
-- Posters 
 
 
 ### Colophon

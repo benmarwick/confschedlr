@@ -1,0 +1,10 @@
+"","N max","day","start","end","day_part","poster_day_part","n_max","n_posters","n_sessions","c_sessions","c_posters"
+"1",60,"THURS"," 08:00:00"," 10:00:00","Th-morning","poster-Th-morning_1",60,60,10,10,60
+"2",60,"THURS"," 10:30:00"," 12:30:00","Th-morning","poster-Th-morning_2",60,58,9,19,118
+"3",60,"THURS"," 14:00:00"," 16:00:00","Th-afternoon","poster-Th-afternoon_1",60,69,6,25,187
+"4",60,"FRI"," 08:00:00"," 10:00:00","Fr-morning","poster-Fr-morning_1",60,56,8,33,243
+"5",60,"FRI"," 10:30:00"," 12:30:00","Fr-morning","poster-Fr-morning_2",60,59,9,42,302
+"6",60,"FRI"," 14:00:00"," 16:00:00","Fr-afternoon","poster-Fr-afternoon_1",60,62,11,53,364
+"7",60,"SAT"," 08:00:00"," 10:00:00","Sa-morning","poster-Sa-morning_1",60,56,8,61,420
+"8",60,"SAT"," 10:30:00"," 12:30:00","Sa-morning","poster-Sa-morning_2",60,62,11,72,482
+"9",60,"SAT"," 14:00:00"," 16:00:00","Sa-afternoon","poster-Sa-afternoon_1",60,49,8,80,531

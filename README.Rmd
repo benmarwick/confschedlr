@@ -14,7 +14,31 @@ knitr::opts_chunk$set(
 
 # saaabstracts
 
-The goal of saaabstracts is to ...
+The goal of saaabstracts is to help organise the program for the 2018 Society of American Archaeology meeting.
+
+The specific tasks were to:
+
+- Classify the general paper and poster submissions into sessions of common topics    
+- Schedule the organised and general sessions into the slots made available by the SAA
+
+The task of classification was done by using hierarchical cluster analysis on the keywords submitted by authors with their abstracts. We tried topic modelling the abstracts, but this did not give much discriminating power. A little manual handling was needed after the `hclust` results because we don't have an easy way to set the upper limit of a cluster size. Once the general submissions were grouped into sessions, then we could send them out to reviwers
+
+The task of scheduling was done in several steps:   
+
+1. Get the details of the available slots in which to put the sessions. We have 3.5 days, and each day has a number of 4 hour slots. Sessions vary in duration from 2 to 4 hours. Some sessions have durations assigned by the SAA, others we have to compute a sensible duration. We round to the nearest 15 min, and add 15 min of buffer time to each session to make the transitions between sessions is smooth.    
+
+2. We use `for` and `while` loops to allocate sessions into day-parts (e.g. Thursday morning) to prevent any first author from being scheduled in two simultaneous day-parts. This looping process in necessary because we have to check the names of the people alrady allocated to a session to see if there will be a clash as we add each new session to the schedule. This process takes a minute or two. 
+
+Currently, we take the papers and sessions in sequence from the spreadsheet we recieved them in, and serially assign them to day parts. This has the problem of putting many sessions on the same topic in the sam day-part (i.e. at the same time). In future, we should change the allocation so that session 1 goes into Thu-morning, session 2 goes into Thu-afternoon, session 3 into Thu-evening. This means that if sessions 1-3 are on similar topics, they wont be scheduled at the same time. This should not be a difficult modification for next time. We may also want to check for topic clashes using keywords. The posters are particularly challenging, and require some of the general session posters to be divided into very small sessions so we can fill the 60-poster slots most efficiently. 
+
+3. Once papers and sessions are assigned to day-parts, we then use the multiple knapsack algorithm to sort sessions into 4-hour slots. This is an automatic method to organise sessions so that we can fill the slots most efficiently, for example, two 2-hour sessions can be found and placed together in one 4-hour slot. This process took up to 30 minutes. We did not do this to the poster sessions because the poster day-parts are not divided into slots based on duration, only the total number of posters.
+
+4. After the slots are filled, we do some checking to make sure we didn't lose any sessions or papers. This is important because the multiple knapsack algorithm may fail to sort all sessions if it cannot find an optimum solution. 
+
+5. Then we check for conflicts with special requests from the SAA, and relocate sessions if necessary. And then check again to ensure we haven't introduced any clashes. 
+
+6. Then do some more manual checkig, assign 4-hour slots to rooms, and upload to SAA website. 
+
 
 ### Citation
 

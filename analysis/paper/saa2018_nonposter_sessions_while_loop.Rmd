@@ -86,7 +86,7 @@ We have this many sessions in each major category, according to my tally of the 
 
 ```{r}
 # table
-tribble(       ~'Session type',             ~number,
+tribble(            ~'Session type',             ~number,
                       'Organised sessions',        n_org_sessions,
                       'Poster sessions',           n_pos_sessions,
                       'General sessions',          n_gen_sessions)
@@ -229,7 +229,11 @@ org_and_gen_session_durations$session_time_allowed <-
   as.numeric(org_and_gen_session_durations$TIME)
 all_nonposter_sessions_with_session_durations$session_time_allowed <- 
   all_nonposter_sessions_with_session_durations$TIME
-z7 <- all_nonposter_sessions_with_session_durations
+z7 <- # just the sessions IDs
+  all_nonposter_sessions_with_session_durations %>% 
+  group_by(`Session Id`) %>% 
+  distinct(`Session Id`)
+
 all_of_the_day_parts <- NULL
 total_cap$hours_of_sessions <- 0
 total_cap$n_sessions <- 0
@@ -355,7 +359,7 @@ while(cumulative_duration_of_sessions <= target_capacity &
                 ))
     }
     
-       # print(progress_check)
+       print(progress_check)
        
        # move to next session
        j <- j + 1
@@ -383,11 +387,11 @@ while(cumulative_duration_of_sessions <= target_capacity &
  # # progress check
  print(glue('i = {i}'))
  # 
- # print(
- # all_of_the_day_parts %>% 
- #   group_by(day_part_from_while) %>% 
- #   summarise(papers = n(),
- #             sessions = length(unique(`Session Id`))))
+ print(
+ all_of_the_day_parts %>%
+   group_by(day_part_from_while) %>%
+   summarise(papers = n(),
+             sessions = length(unique(`Session Id`))))
  
  total_cap$n_sessions[i] <- length(unique(container_for_this_day_part_with_day_from_while$`Session Id`))
  

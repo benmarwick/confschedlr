@@ -12,16 +12,16 @@ knitr::opts_chunk$set(
 )
 ```
 
-# saaabstracts
+# confschedlr
 
-The goal of saaabstracts is to help organise the program for the 2018 Society of American Archaeology meeting.
+The goal of confschedlr is to help organise the program for the 2018 Society of American Archaeology meeting.
 
 The specific tasks were to:
 
 - Classify the general paper and poster submissions into sessions of common topics    
 - Schedule the organised and general sessions into the slots made available by the SAA
 
-The task of classification was done by using hierarchical cluster analysis on the keywords submitted by authors with their abstracts. We tried topic modelling the abstracts, but this did not give much discriminating power. A little manual handling was needed after the `hclust` results because we don't have an easy way to set the upper limit of a cluster size. Once the general submissions were grouped into sessions, then we could send them out to reviwers
+The task of classification was done by using hierarchical cluster analysis on the keywords submitted by authors with their abstracts. We tried topic modelling the abstracts, but this did not give much discriminating power. A little manual handling was needed after the `hclust` results because we don't have an easy way to set the upper limit of a cluster size. Once the general submissions were grouped into sessions, then we could send them out to reviwers. In the future this could be imporved by using a controlled vocabulary for keywords so we don't have so many synonyms to manually handle. 
 
 The task of scheduling was done in several steps:   
 
@@ -34,7 +34,6 @@ Currently, we take the papers and sessions in sequence from the spreadsheet we r
 3. Once papers and sessions are assigned to day-parts, we then use the multiple knapsack algorithm to sort sessions into 4-hour slots. This is an automatic method to organise sessions so that we can fill the slots most efficiently, for example, two 2-hour sessions can be found and placed together in one 4-hour slot. This process took up to 30 minutes. We did not do this to the poster sessions because the poster day-parts are not divided into slots based on duration, only the total number of posters.
 
 4. After the slots are filled, we do some checking to make sure we didn't lose any sessions or papers. This is important because the multiple knapsack algorithm may fail to sort all sessions if it cannot find an optimum solution. 
-
 5. Then we check for conflicts with special requests from the SAA, and relocate sessions if necessary. And then check again to ensure we haven't introduced any clashes. 
 
 6. Then do some more manual checkig, assign 4-hour slots to rooms, and upload to SAA website. 
@@ -44,15 +43,15 @@ Currently, we take the papers and sessions in sequence from the spreadsheet we r
 
 Please cite this compendium as:
 
-> Authors, (`r format(Sys.Date(), "%Y")`). _Title of compendium_. Accessed `r format(Sys.Date(), "%d %b %Y")`. Online at <https://doi.org/xxx/xxx>
+> Authors, (`r format(Sys.Date(), "%Y")`). _confschedlr: An R package for scheduling conference sessions_. Accessed `r format(Sys.Date(), "%d %b %Y")`. Online at <https://doi.org/xxx/xxx>
 
 ### Installation
 
-You can install saaabstracts from github with:
+You can install confschedlr from github with:
 
 ```{r gh-installation, eval = FALSE}
 # install.packages("devtools")
-devtools::install_github("benmarwick/saaabstracts")
+devtools::install_github("benmarwick/confschedlr")
 ```
 
 ### Licenses

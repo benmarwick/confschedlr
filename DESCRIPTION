@@ -1,13 +1,16 @@
-Package: saaabstracts
-Title: What the Package Does (one line, title case)
+Package: confschedlr
+Title: Organise submitted papers into time slots to schedule a conference
 Version: 0.0.0.9000
 Authors@R: person("Ben", "Marwick", email = "benmarwick@gmail.com", role = c("aut", "cre"))
-Description: What the package does (one paragraph).
+Description: Given a table authors and the titles of their papers, this package 
+    contains functions to group the papers into time slots for a conference with 
+    parallel sessions. The functions will check for schedule clashes so that no 
+    author will scheduled to present in two concurrent slots.
 Depends: R (>= 3.4.0)
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
-URL: https://github.com/benmarwick/saaabstracts
-BugReports: https://github.com/benmarwick/saaabstracts/issues
+URL: https://github.com/benmarwick/confschedlr
+BugReports: https://github.com/benmarwick/confschedlr/issues
 Imports: bookdown, tm, topicmodels, readxl, Rmpfr, tidyverse
 Suggests: testthat

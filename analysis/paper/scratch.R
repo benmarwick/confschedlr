@@ -8,7 +8,7 @@ create <- function(pkg = ".", auth_token, private = FALSE, copyright_holder){
   devtools::use_testthat()
 }
 
-create(auth_token = "12faaec9d29ab5cce52a27ca51d1112fc83a2e93")
+create(auth_token = "xx")
 
 
 mtcars %>%
